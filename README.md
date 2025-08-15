@@ -1,97 +1,131 @@
-Overview
-This project simulates particle beam behavior through a target, aperture, and magnetic transport system, with visualization of particle impacts on a focal plane. The code consists of three main components:
+# Particle Beam Transport Simulation
 
-components.py: Physical component definitions
-processes.py: Core simulation processes
-syn_MPR.py: Main simulation script
+This repository contains a Python-based simulation toolkit for modeling particle beam transport through magnetic optical systems, including targets, apertures, and magnets, with focal plane detection capabilities.
+
+## Modules Overview
+
+### 1. `components.py` - Physical Components
+Defines key components in beam transport systems:
+
+- **`Target` class**: Represents interaction targets
+  - Properties: type, thickness, radius, density, ESP (Energy Stopping Power)
+  - Methods: `get_ESP()` for energy loss interpolation
+  - Supported types: 'CH2' (polyethylene) with customizable parameters
+  - ESP data loaded from "ESP.dat" file
+
+- **`Aperture` class**: Models beam-limiting apertures
+  - Properties: type, radius, distance from target
+  - Supported types: 'circular'
+
+- **`Magnets` class**: Represents magnetic optical elements
+  - Properties: reference energy, transfer matrix (TM), length
+  - Loads transport matrix from file (format: 5 coefficients + exponent code)
+
+- **`Focalplane` class**: Detector plane configuration
+  - Properties: type, position, geometry
+  - Supported types: 
+    - 'normal': Linear geometry
+    - 'arbitrary': Custom geometry defined by (x,z) points
+
+### 2. `processes.py` - Beam Dynamics
+Implements core beam manipulation processes:
+
+- **`Beam_init()`**: Initializes particle beam
+  - Generation modes: 
+    - 'import': (Placeholder for future implementation)
+    - 'generate': Creates beam from parameters (interactive input)
+      - Handles energy loss through target (optional)
+      - Filters particles through aperture
+
+- **`Beam_trans()`**: Transports beam through magnets
+  - Applies transfer matrix (including high-order terms)
+  - Handles energy deviations via δ = (E-E_ref)/E_ref
+
+- **`Beam_hit()`**: Detects beam on focal plane
+  - Uses line-plane intersection algorithm
+  - Records hit positions along focal plane geometry
+  - Returns list of (position, y-coordinate) tuples
+
+- **Helper function**: `Aline()` for plane-line intersection
+
+### 3. `syn_MPR.py` - Main Simulation Script
+Demonstrates full simulation workflow:
+
+1. Component setup:
+   - CH₂ target (2cm radius, 0.16μm thickness)
+   - Circular aperture (2.2cm radius, 20cm distance)
+   - Magnet (0.8m length, 14MeV reference energy)
+   - Focal plane (normal geometry at 0.86m)
+
+2. Beam generation:
+   - Interactive parameter input
+   - Energy range: 14±Δ MeV (user-defined)
+   - Multiple particles per energy bin
+
+3. Beam transport:
+   - Applies magnet's transfer matrix ("TM.txt")
+   - Tracks phase space coordinates (x,a,y,b,t,E)
+
+4. Detection and visualization:
+   - Records hits on focal plane
+   - Generates scatter plot of hit positions
+
+## Data Formats
+
+- **ESP.dat**: Energy Stopping Power data
+  - Format: Two-column (Energy[MeV], ESP[MeV/(g/cm²)])
+  - Used for energy loss calculations in targets
+
+- **TM.txt**: Transport Matrix coefficients
+  - Format: Six values per line (5 floats + 1 exponent code)
+  - Exponent code: ABCDEF format for initial condition powers
+  - Example line: `23.00998 16.05775 0.000000 0.000000 -3.706701 200000`
+
+## Usage
+
+1. Configure components in `syn_MPR.py`:
+   ```python
+   target = Target('CH2', r=0.02, thickness=0.00016)
+   aperture = Aperture('circular', r=0.022, distance=0.2)
+   magnet = Magnets('TM.txt', reference_energy=14, length=0.8)
+   focalplane = Focalplane('normal', position=0.86)
+Generate beam:
+
+PYTHON
+beam = Beam_init('generate', target, aperture)
+Transport through magnet:
+
+PYTHON
+beam = Beam_trans(magnet, beam)
+Detect on focal plane:
+
+PYTHON
+hits = Beam_hit(magnet, focalplane, beam)
+Visualize results:
+
+PYTHON
+plt.scatter([h[0] for h in hits], [h[1] for h in hits], s=2)
+plt.xlabel('l [m]'); plt.ylabel('y [m]')
+plt.axis('equal'); plt.show()
 Dependencies
-Install required packages:
-
-BASH
-pip install numpy scipy matplotlib
-File Descriptions
-1. components.py
-Defines physical components in the beamline:
-
+Python 3.7+
+NumPy
+SciPy
+Matplotlib
+Customization Options
+Targets: Modify material properties (density, ESP data)
+Magnets: Provide custom transfer matrix files
+Focal planes:
 PYTHON
-class Target:       # Particle target with energy loss calculations
-class Aperture:     # Beam-limiting aperture
-class Magnets:      # Magnetic transport system
-class Focalplane:   # Detection plane geometry
-Key Features:
-
-Energy loss calculations using interpolation from ESP.dat
-Support for arbitrary focal plane geometries
-Magnetic field coefficients loaded from external files
-2. processes.py
-Core simulation processes:
-
-PYTHON
-Beam_init()    # Generates particle beam with energy/angle distributions
-Beam_trans()   # Transports particles through magnetic elements
-Beam_hit()     # Tracks particle impacts on focal plane
-Physics Models:
-
-Random particle generation in target material
-Energy loss via stopping power (ESP)
-Magnetic transport using transfer matrices
-Geometric intersection calculations
-3. syn_MPR.py
-Main simulation script:
-
-PYTHON
-# Initialize components
-target = Target('CH2', r=0.02, thickness=0.00016)
-aperture = Aperture('circular', r=0.022, distance=0.2)
-Magnet = Magnets('TM.txt', reference_energy=14, length=0.8)
-
-# Generate and transport beam
-Beam = Beam_init('generate', target, aperture)
-Beam = Beam_trans(Magnet, Beam)
-
-# Detect impacts and visualize
-focalplane = Focalplane('normal', position=0.86)
-record = Beam_hit(Magnet, focalplane, Beam)
-Execution
-Run the simulation:
-
-BASH
-python syn_MPR.py
-Expected Output:
-
-Terminal logs of particle generation/transport
-Interactive matplotlib window showing:
-Particle impact positions on focal plane
-Scatter plot of (l, y) coordinates
-Example Output
-
-Configuration
-Modify these parameters in syn_MPR.py:
-
-PYTHON
-# Target properties
-target = Target('CH2', r=0.02, thickness=0.00016)
-
-# Beam energy range (prompted during execution)
-Emin = ...  # Minimum energy [MeV]
-Emax = ...  # Maximum energy [MeV]
-
-# Magnet settings
-Magnet = Magnets('TM.txt', reference_energy=14, length=0.8)
-
-# Focal plane type
-focalplane = Focalplane('normal', position=0.86)
-# focalplane = Focalplane('arbitrary', ...)
-Data Files
-ESP.dat - Stopping power data (MeV/(g/cm²))
-Format: Energy[MeV] Stopping_Power
-TM.txt - Magnet transfer matrix coefficients
-Format per line: C1 C2 C3 C4 C5 p1 p2 p3 p4 p5 p6
-Where p1-p6 are exponent flags (0/1)
-Key Features
-🎯 Realistic beam generation with energy loss
-🧲 Magnetic transport using transfer matrices
-📐 Support for arbitrary focal plane geometries
-📊 Interactive visualization of results
-⚡ Optimized using NumPy and SciPy
-For questions or contributions, contact [your email/contact info].
+# Custom curved focal plane:
+geometry = [(-0.5,0.81), (-0.324,0.81), (-0.216,0.84), 
+            (-0.072,0.86), (0.042,0.86), (0.126,0.84), (0.5,0.82)]
+focalplane = Focalplane('arbitrary', position=0.86, geometry=geometry)
+Beam generation: Adjust binning and particle counts
+Physics Modeling Features
+Energy straggling in materials (via ESP interpolation)
+Non-linear beam optics (high-order transfer matrices)
+Aperture scattering effects
+Arbitrary focal plane geometries
+Phase space tracking (6D coordinates)
+Note: The simulation currently models neutron beams but can be extended to charged particles by adding electromagnetic interactions.
