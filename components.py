@@ -2,10 +2,11 @@ import numpy as np
 from scipy.interpolate import interp1d
 
 class Target:
-    def __init__(self, type: str, thickness: float, r: float):
+    def __init__(self, type: str, thickness: float, shape: str, geometry: list): # geometry: [r] if shape == "circle", [w, h] if shape == "rectangle" 
         self.type = type
         self.thickness = thickness
-        self.r = r
+        self.shape = shape
+        self.geometry = geometry
 
         self.ESP = None
         self.density = None
@@ -18,17 +19,39 @@ class Target:
                 ESP = np.array([line.strip().split() for line in lines], dtype=float)
             self.ESP = ESP # [MeV/(g/cm^2)]
             f.close()
+        else:
+            raise Exception("Target: Invalid type!")
         
         self.ESP_interp = interp1d(self.ESP[:,0], self.ESP[:,1])
     
     def get_ESP(self, E):
         return self.ESP_interp(E)
+    
+    def get_initialPosition (self):
+        if self.shape == "circle":
+            while(True):
+                x = np.random.uniform(-self.geometry[0], self.geometry[0])
+                y = np.random.uniform(-self.geometry[0], self.geometry[0])
+                if x**2 + y**2 <= self.geometry[0]**2:
+                    break
+            z = np.random.uniform(0, self.thickness)
+            return x, y, z
+        elif self.shape == "rectangle":
+            return np.random.uniform(-self.geometry[0]/2, self.geometry[0]/2), np.random.uniform(-self.geometry[1]/2, self.geometry[1]/2), np.random.uniform(0, self.thickness)
+        else:
+            raise Exception("Target: Invalid shape!")
+        
 class Aperture:
-    def __init__(self, type: str, r: float, distance: float):
-        self.type = type
+    def __init__(self, distance: float, shape: str, geometry: list):
         self.distance = distance
-        self.r = r
+        self.geometry = geometry
+        self.shape = shape
 
+    def isPassed(self, x, y):
+        if self.shape == "circle":
+            return x**2 + y**2 <= self.geometry[0]**2
+        elif self.shape == "rectangle":
+            return (np.abs(x) <= self.geometry[0]/2 and np.abs(y) <= self.geometry[1]/2)
 
 class Magnets:
     def __init__(self, file_path: str, reference_energy: float, length: float): # [MeV]

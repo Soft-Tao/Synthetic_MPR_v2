@@ -25,11 +25,7 @@ def Beam_init(method: str, target = None, aperture = None, E_loss = True):
                 N_bin_valid = 0
                 while (N_bin_valid < Npart):
                     # random starting position in the target
-                    start_r = np.random.uniform(0, target.r)
-                    start_phi = np.random.uniform(0, 2*np.pi)
-                    start_x = start_r * np.cos(start_phi)
-                    start_y = start_r * np.sin(start_phi)
-                    start_z = np.random.uniform(0, target.thickness)
+                    start_x, start_y, start_z = target.get_initialPosition()
 
                     # random scattering angle
                     u = np.random.uniform(0, 1)
@@ -41,13 +37,13 @@ def Beam_init(method: str, target = None, aperture = None, E_loss = True):
                     end_y = start_y + (aperture.distance - start_z)*np.tan(theta)*np.sin(phi)
 
                     # check if the particle is inside the aperture
-                    if (end_x**2 + end_y**2 > aperture.r**2):
-                        print(f"r = {np.sqrt(end_x**2 + end_y**2):.2f} m, particle is outside the aperture")
+                    if not aperture.isPassed(end_x, end_y):
+                        print(f"x = {end_x:.2f} m, y = {end_y:.2f} m, particle is outside the aperture")
                         continue
                     else:
                         # calculate energy loss
                         if E_loss:
-                            E_par = E * np.cos(theta)
+                            E_par = E * np.cos(theta) * np.cos(theta)
                             E_par -= target.get_ESP(E_par) * ((target.thickness - start_z) * 100) * target.density
                         else:
                             E_par = E
