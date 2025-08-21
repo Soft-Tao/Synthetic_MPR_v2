@@ -1,7 +1,7 @@
 import numpy as np
 from components import Target, Aperture, Magnets, Focalplane
 
-def Beam_init(method: str, target = None, aperture = None, E_loss = True):
+def Beam_init(method: str, target = None, aperture = None, E_loss = True, Emin = None, Emax = None, Nbins = None, Npart = None):
     if method == 'import':
         pass
 
@@ -9,14 +9,18 @@ def Beam_init(method: str, target = None, aperture = None, E_loss = True):
         if target == None or aperture == None:
             raise Exception("you CANNOT generate a beam with no Target or Aperture specified!")
         else:
-            print("input minimum n-beam energy: [MeV]")
-            Emin = float(input())
-            print("input maximum n-beam energy: [MeV]")
-            Emax = float(input())
-            print("input number of bins: ")
-            Nbins = int(input())
-            print("input number of particles per bin: ")
-            Npart = int(input())
+            if Emin is None:
+                print("input minimum n-beam energy: [MeV]")
+                Emin = float(input())
+            if Emax is None:
+                print("input maximum n-beam energy: [MeV]")
+                Emax = float(input())
+            if Nbins is None:
+                print("input number of bins: ")
+                Nbins = int(input())
+            if Npart is None:
+                print("input number of particles per bin: ")
+                Npart = int(input())
 
             # starting generating the beam
             Beam = []
