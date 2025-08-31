@@ -9,15 +9,14 @@ import time
 def plot_spectrum(xx, **params):
     figsize = params.get('figsize', None)
     title = params.get('title', "Proton Energy Spectrum")
-    data = xx  # 最后一列
+    data = xx  # last column
     plt.figure(figsize=figsize)
-    plt.hist(data, bins='auto', edgecolor='black')  # 自适应 bin
+    plt.hist(data, bins='auto', edgecolor='black')
     # plt.xlabel("proton energy $E_{\\text{p}}\\ [\\text{MeV}]$")
     # plt.ylabel("counts")
     # plt.title(title)
     plt.show()
     plt.close()
-
 
 class Beam:
     def __init__(self, beam, N_beampart, N_protons, N_neutrons):
@@ -55,9 +54,6 @@ class Beam:
             start_x, start_y, start_z = protons_initial[:, 0], protons_initial[:, 1], protons_initial[:, 2]
             u, phi = protons_initial[:, 3], protons_initial[:, 4]
             theta = np.arccos(u)
-            # for i in range(5):
-            #     plot_spectrum(protons_initial[:, i])
-            # input('')
             end_x = start_x + (aperture.distance - start_z) * np.tan(theta) * np.cos(phi)
             end_y = start_y + (aperture.distance - start_z) * np.tan(theta) * np.sin(phi)
             idx = aperture.isPassed(end_x, end_y)
@@ -188,14 +184,14 @@ class Beam:
         if self.list is None:
             raise ValueError("Beam.list is empty")
 
-        data = self.list[:, -1]  # 最后一列
+        data = self.list[:, -1]
         plt.figure(figsize=figsize)
         if bin_width:
             bin_start = np.floor(data.min() / bin_width) * bin_width
             bin_end = np.ceil(data.max() / bin_width) * bin_width
             bins = np.arange(bin_start, bin_end + bin_width, bin_width)
         else:
-            bins = 'auto'  # 自适应
+            bins = 'auto'
         counts, bin_edges, _ = plt.hist(data, bins=bins, edgecolor='black')
         plt.xlabel("proton energy $E_{\\text{p}}\\ [\\text{MeV}]$")
         plt.ylabel("counts")
@@ -220,36 +216,34 @@ class Beam:
         node_distances_x = (focalplane.geometry[None, :, 0] - self.list[:, None, 0] -
                             self.list[:, None, 1] * (focalplane.geometry[None, :, 1]))
 
-        # 判断交点数量
+        # determine the number of intersection points
         mask = node_distances_x >= 0
         transitions = np.diff(mask.astype(int), axis=1)  # [N_part, N_node-1], +1/-1 means the trajectory pass through the two nodes
         has_transition = transitions != 0
         # transition_indices = [np.where(row != 0)[0] for row in transitions]
         N_intersection_points = np.sum(has_transition, axis=1)
-        if np.any(N_intersection_points >= 2):  # 多交点: 焦平面设置不合理, 报错
+        if np.any(N_intersection_points >= 2):
             raise ValueError("Too many transitions (>=2)!")
-        # 对只允许一个交点的情况，找到索引位置
-        # 方法：argmax 返回第一个 True 的位置，但对全 False 会给 0，需要屏蔽（设置-1）
+        # For cases where only one intersection is allowed, find the index position
+        # Method: argmax returns the first True position, but for all False it gives 0, which needs to be masked (set to -1)
         first_transition_idx = np.argmax(has_transition, axis=1)
         first_transition_idx_selected = first_transition_idx[np.any(has_transition, axis=1)]
         particle_selected = self.list[np.any(has_transition, axis=1)]
         node_distance_x_selected = node_distances_x[np.any(has_transition, axis=1), :]  # [N_hits, N_node]
-
         N_hits = np.count_nonzero(np.any(has_transition, axis=1))
         rows = np.arange(N_hits)
-        # 取两侧节点的 node_distance_x, [N_hits]
+
         d0 = node_distance_x_selected[rows, first_transition_idx_selected]
         d1 = node_distance_x_selected[rows, first_transition_idx_selected + 1]
-        # 对应的几何节点 (x, z, l), [N_hits, 3]
+
         g0 = focalplane.geometry[first_transition_idx_selected]
         g1 = focalplane.geometry[first_transition_idx_selected + 1]
-        # 插值 (逐元素广播)
+ 
         x_hits, z_hits, l_hits = ((-d0[:, None] * g1 + d1[:, None] * g0) /
                                   (-d0 + d1)[:, None]).T
         y_hits = particle_selected[:, 2] + particle_selected[:, 3] * z_hits
 
         return ProtonHits(x_hits, y_hits, z_hits, l_hits)
-
 
 class ProtonHits:
     def __init__(self, x_hits, y_hits, z_hits, l_hits):
