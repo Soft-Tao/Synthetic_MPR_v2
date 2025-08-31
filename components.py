@@ -1,8 +1,6 @@
 import numpy as np
 from scipy.interpolate import interp1d
 
-
-
 def load_numeric_table(fname):
     start = None
     with open(fname, "r") as f:
@@ -11,7 +9,6 @@ def load_numeric_table(fname):
             if not parts:
                 continue
             try:
-                # 全部都能转为 float，才算有效数据行
                 _ = [float(x) for x in parts]
                 start = i
                 break
@@ -19,55 +16,47 @@ def load_numeric_table(fname):
                 continue
     return np.loadtxt(fname, skiprows=start)
 
-
 def sample_u_vectorized(f, N):
     """
-    生成 N 个 u ∈ [0,1]，概率密度 ∝ u * f(2u^2 - 1)
-    向量化批量生成
+    Generate N*u in [0, 1] with probability density ∝ u * f(2u^2 - 1)
     """
-    M = f(1.0)  # 最大值
+    M = f(1.0)
     u_samples = []
 
     while len(u_samples) < N:
-        # 生成候选 u
         u_candidate = np.random.uniform(0, 1, size=5 * N)
         w = u_candidate * f(2 * u_candidate ** 2 - 1)
         accept = u_candidate[np.random.uniform(0, M, size=u_candidate.size) < w]
         u_samples.extend(accept.tolist())
     return np.array(u_samples[:N])
 
-
 def sample_u_vectorized_with_umin(f, g, N, u_min):
     """
-    生成 N 个 u ∈ [u_min, 1]，概率密度 ∝ u * f(2u^2 - 1)
+    Generate N*u in [u_min, 1] with probability density ∝ u * f(2u^2 - 1)
 
-    :param f: 概率密度函数
-    :param g: 代表 f 从 0 到 x 的积分函数
-    :param N: 需要采样的数量
-    :param u_min: 最小取值，u ∈ [u_min, 1]
+    Parameters:
+    f: probability density function
+    g: integral of f from 0 to x
+    N: number of samples needed
+    u_min: minimum value of u, u ∈ [u_min, 1]
 
-    :return: u_samples: 采样得到的 u 数组
-            prob_ratio: [u_min,1]区间概率与[0,1]区间概率的比值
+    return:
+    u_samples: sampled u array
+    prob_ratio: probability ratio of [u_min,1] to [0,1]
     """
-    M = f(1.0)  # 最大值
+    M = f(1.0)
     u_samples = []
 
-    # 计算 [u_min, 1] 区间概率与 [0, 1] 区间概率的比值
+    # calculate prob_ratio
     gp = lambda uu: 1/4.0 * (g(2*uu**2-1) - g(-1))
     prob_ratio = (gp(1.0) - gp(u_min)) / gp(1.0)
 
     while len(u_samples) < N:
-        # 生成候选 u，范围在 [u_min, 1]，通过线性变换映射
         u_candidate = np.random.uniform(u_min, 1.0, size=5 * N)
         w = u_candidate * f(2 * u_candidate ** 2 - 1)
-
-        # 接受的标准
         accept = u_candidate[np.random.uniform(0, M, size=u_candidate.size) < w]
-
-        # 扩展样本列表
         u_samples.extend(accept.tolist())
 
-    # 取前 N 个采样值
     return np.array(u_samples[:N]), prob_ratio
 
 
@@ -87,9 +76,8 @@ class Target:
                          The meaning depends on the shape:
                            - If shape = "disk", geometry = [radius]
                            - If shape = "square", geometry = [side length]
-                           - If shape = "rectangle", geometry = [radius, height]
+                           - If shape = "rectangle", geometry = [width, height]
         """
-
         self.type = type
         self.mass_thickness = mass_thickness
         self.shape = shape
@@ -106,12 +94,8 @@ class Target:
 
         if self.type == 'CH2':
             self.density = density  # [g/cm^3] range: 0.1-0.96
-            # with open("ESP.dat", 'r') as f:
-            #     lines = f.readlines()
-            #     ESP = np.array([line.strip().split() for line in lines], dtype=float)
             ESP = load_numeric_table(ESP_file)
-            self.ESP = ESP  # [MeV/(g/cm^2)]
-            # f.close()
+            self.ESP = ESP
         else:
             raise Exception("Target: Invalid type!")
 
@@ -141,7 +125,6 @@ class Target:
             self.max_r = self.geometry[0]
         elif self.shape == 'rectangle':
             self.max_r = 0.5 * np.sqrt(self.geometry[0]**2 + self.geometry[1]**2)
-
 
     def get_ESP(self, E):
         return self.ESP_interp(E)
@@ -206,13 +189,16 @@ class Target:
 
 
 class Aperture:
-    def __init__(self, distance: float, shape: str, solid_angle=None, H_W_ratio=None, geometry=None):
+    def __init__(self, distance: float, shape: str, solid_angle=None, H_W_ratio=None, geometry: list=None):
         """
-        :param distance: Distance between the Target and the Aperture [m]
-        :param shape: 'circle', 'rectangle'
-        :param solid_angle: solid angle [msr]
-        :param H_W_ratio: H/W of the aperture
-        :param geometry: [r] for 'circle', [w, h] for 'rectangle', [m]
+        Initialize an Aperture object.
+
+        Parameters:
+        distance: Distance between the Target and the Aperture [m]
+        shape: 'circle', 'rectangle'
+        solid_angle: solid angle [msr]
+        H_W_ratio: H/W of the aperture
+        geometry: [r] for 'circle', [w, h] for 'rectangle', [m]
         """
         self.distance = distance
         self.shape = shape
@@ -253,19 +239,23 @@ class Aperture:
         elif self.shape == 'rectangle':
             self.max_r = 0.5 * np.sqrt(self.geometry[0]**2 + self.geometry[1]**2)
 
-
     def isPassed(self, x, y):
         if self.shape == "circle":
             return x ** 2 + y ** 2 <= self.geometry[0] ** 2
         elif self.shape == "rectangle":
             return (np.abs(x) <= self.geommetry[0] / 2 and np.abs(y) <= self.geometry[1] / 2)
 
-
 class Magnets:
-    def __init__(self, file_path: str, reference_energy: float):    # , length: float):  # [MeV]
+    def __init__(self, file_path: str, reference_energy: float):
+        '''
+        Initialize a Magnets object using transfer map from COSY INFINITY.
+
+        Parameters:
+        file_path: path to the TM.txt file
+        reference_energy: reference energy [MeV]
+        '''
         self.reference_energy = reference_energy
         self.TM = []
-        # self.length = length
 
         with open(file_path, 'r') as f:
             lines = f.readlines()
@@ -278,9 +268,16 @@ class Magnets:
                 self.TM.append(TMi)
         self.TM = np.array(self.TM)
 
-
 class Focalplane:
-    def __init__(self, type: str, position: float, geometry=None, length=1):  # geometry: (x, z) list of tuples, z = 0 @ position
+    def __init__(self, type: str, position: float, geometry: list=None, length=1):
+        '''
+        Initialize a Focalplane object.
+
+        Parameters:
+        type: 'normal' or 'arbitrary'
+        position: focal plane position [m] behind magnets' exit
+        geometry: (x, z) list of tuples, z = 0 @ position
+        '''
         self.type = type
         self.position = position
 
