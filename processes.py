@@ -1,104 +1,261 @@
+import copy, os
+import matplotlib.pyplot as plt
 import numpy as np
 from components import Target, Aperture, Magnets, Focalplane
+import ENDF_differential_cross_section
+from scipy.constants import Avogadro
+import time
 
-def Beam_init(method: str, target = None, aperture = None, E_loss = True, Emin = None, Emax = None, Nbins = None, Npart = None):
-    if method == 'import':
-        pass
+def plot_spectrum(xx, **params):
+    figsize = params.get('figsize', None)
+    title = params.get('title', "Proton Energy Spectrum")
+    data = xx  # 最后一列
+    plt.figure(figsize=figsize)
+    plt.hist(data, bins='auto', edgecolor='black')  # 自适应 bin
+    # plt.xlabel("proton energy $E_{\\text{p}}\\ [\\text{MeV}]$")
+    # plt.ylabel("counts")
+    # plt.title(title)
+    plt.show()
+    plt.close()
 
-    if method == 'generate':
+
+class Beam:
+    def __init__(self, beam, N_beampart, N_protons, N_neutrons):
+        self.list = beam
+        self.N_beampart = N_beampart
+        self.N_protons = N_protons
+        self.N_neutrons = N_neutrons
+        self.std_dev_E = None
+        self.ave_E = None
+
+    @classmethod
+    def generate(cls, target: Target, aperture: Aperture, energy, Npart, cross_section=None,
+                 E_scatt=True, E_loss=True):
         if target == None or aperture == None:
             raise Exception("you CANNOT generate a beam with no Target or Aperture specified!")
+
+        # load cross-section
+        if cross_section is None:
+            cross_section = ENDF_differential_cross_section.differential_cross_section(
+                'E4R84432_e4.endf.endf2gnd.endf')
+        f = cross_section.compute_f(energy * 1E6)
+        g = cross_section.compute_g(energy * 1E6)
+        sigma_s = cross_section.compute_sigma_s(energy * 1E6)
+
+        # generate proton beams at aperture
+        protons = np.empty((0, 5))
+        N_protons = 0
+
+        # calculate u_min(cos maximum probably scattering angle)
+        # u_min = 0.0
+        u_min = np.cos(np.arctan((target.max_r + aperture.max_r) / aperture.distance))
+
+        while len(protons) < Npart:
+            protons_initial, frac = target.generate_particles(Npart * 5, f, g, u_min)
+            start_x, start_y, start_z = protons_initial[:, 0], protons_initial[:, 1], protons_initial[:, 2]
+            u, phi = protons_initial[:, 3], protons_initial[:, 4]
+            theta = np.arccos(u)
+            # for i in range(5):
+            #     plot_spectrum(protons_initial[:, i])
+            # input('')
+            end_x = start_x + (aperture.distance - start_z) * np.tan(theta) * np.cos(phi)
+            end_y = start_y + (aperture.distance - start_z) * np.tan(theta) * np.sin(phi)
+            idx = aperture.isPassed(end_x, end_y)
+            accepted = protons_initial[idx]
+
+            n_need = Npart - len(protons)
+            if len(accepted) >= n_need:
+                accepted = accepted[:n_need]
+                N_protons += (np.where(idx)[0][n_need - 1] + 1) / frac
+                protons = np.vstack([protons, accepted])
+                break
+            else:
+                N_protons += len(protons_initial) / frac
+                protons = np.vstack([protons, accepted])
+
+        # calculate neutrons based on the cross-section
+        N_neutrons = N_protons * 14.027 / (2.0 * Avogadro) / target.mass_thickness / sigma_s * 1E27
+
+        # calculate proton energy
+        start_x, start_y, start_z = protons[:, 0], protons[:, 1], protons[:, 2]
+        u, phi = protons[:, 3], protons[:, 4]
+        theta = np.arccos(u)
+        if E_scatt and E_loss:
+            E_par = energy * np.cos(theta) * np.cos(theta)
+            E_par -= target.get_ESP(E_par) * ((target.thickness - start_z) * 100) * target.density
+        elif E_loss:
+            E_par = energy * np.ones_like(theta)
+            E_par -= target.get_ESP(E_par) * ((target.thickness - start_z) * 100) * target.density
+        elif E_scatt:
+            E_par = energy * np.cos(theta) * np.cos(theta)
         else:
-            if Emin is None:
-                print("input minimum n-beam energy: [MeV]")
-                Emin = float(input())
-            if Emax is None:
-                print("input maximum n-beam energy: [MeV]")
-                Emax = float(input())
-            if Nbins is None:
-                print("input number of bins: ")
-                Nbins = int(input())
-            if Npart is None:
-                print("input number of particles per bin: ")
-                Npart = int(input())
+            E_par = energy * np.ones_like(theta)
 
-            # starting generating the beam
-            Beam = []
-            E_lst = np.linspace(Emin, Emax, Nbins) # [MeV]
-            for E in E_lst:
-                N_bin_valid = 0
-                while (N_bin_valid < Npart):
-                    # random starting position in the target
-                    start_x, start_y, start_z = target.get_initialPosition()
+        # generate beam list, [x, a, y, b, t, E]
+        beam = np.stack([start_x + (target.thickness - start_z) * np.tan(theta) * np.cos(phi),
+                         np.tan(theta) * np.cos(phi),
+                         start_y + (target.thickness - start_z) * np.tan(theta) * np.sin(phi),
+                         np.tan(theta) * np.sin(phi), np.zeros_like(E_par), E_par], axis=1)  # [x, a, y, b, t, E]
+        # std_dev_E = np.std(beam[:, -1])
+        # define the class
+        obj = cls(beam, len(beam), N_protons, N_neutrons)
+        obj.compute_energy_stats()
+        # input(f"{obj.N_beampart}, {obj.N_protons}, {obj.N_neutrons}")
+        return obj
+    @classmethod
+    def generate_monoenergetic_parallel(cls, target:Target, energy, Npart):
+        if target == None:
+            raise Exception("you CANNOT generate a beam with no Target specified!")
+        # generate beam list, [x, a, y, b, t, E]
+        beam = np.zeros((Npart, 6))
+        beam[:, 0], beam[:, 2] = target.get_initialPosition_N(Npart)
+        beam[:, -1] = energy
+        obj = cls(beam, len(beam), None, None)
+        obj.compute_energy_stats()
+        # input(f"{obj.N_beampart}, {obj.N_protons}, {obj.N_neutrons}")
+        return obj
 
-                    # random scattering angle
-                    u = np.random.uniform(0, 1)
-                    theta = np.arcsin(np.sqrt(u))
-                    phi = np.random.uniform(0, 2*np.pi)
+    @classmethod
+    def generate_monoenergetic_cone(cls, target:Target, energy, Npart):
+        if target == None:
+            raise Exception("you CANNOT generate a beam with no Target specified!")
+        # generate beam list, [x, a, y, b, t, E]
+        beam = np.zeros((Npart, 6))
+        beam[:, 0], beam[:, 2] = target.get_initialPosition_N(Npart)
+        beam[:, -1] = energy
+        obj = cls(beam, len(beam), None, None)
+        obj.compute_energy_stats()
+        # input(f"{obj.N_beampart}, {obj.N_protons}, {obj.N_neutrons}")
+        return obj
 
-                    # calculate final position
-                    end_x = start_x + (aperture.distance - start_z)*np.tan(theta)*np.cos(phi)
-                    end_y = start_y + (aperture.distance - start_z)*np.tan(theta)*np.sin(phi)
+    def compute_energy_stats(self):
+        if self.list is None:
+            raise ValueError("Error!! Empty beam list!")
+        self.std_dev_E = np.std(self.list[:, -1])
+        self.ave_E = np.mean(self.list[:, -1])
 
-                    # check if the particle is inside the aperture
-                    if not aperture.isPassed(end_x, end_y):
-                        print(f"x = {end_x:.2f} m, y = {end_y:.2f} m, particle is outside the aperture")
-                        continue
-                    else:
-                        # calculate energy loss
-                        if E_loss:
-                            E_par = E * np.cos(theta) * np.cos(theta)
-                            E_par -= target.get_ESP(E_par) * ((target.thickness - start_z) * 100) * target.density
-                        else:
-                            E_par = E
+    def trans(self, magnet: Magnets):
+        """
+        Vectorized version of Beam_trans.
 
-                        # add the particle to the beam
-                        Beam.append([start_x + (target.thickness - start_z)*np.tan(theta)*np.cos(phi), np.tan(theta)*np.cos(phi), start_y + (target.thickness - start_z)*np.tan(theta)*np.sin(phi), np.tan(theta)*np.sin(phi), 0, E_par]) #[x, a, y, b, t, E]
-                        N_bin_valid += 1
-                        print(f"One particle passed! N_bin_valid = {N_bin_valid}, E = {E_par:.2f} MeV")
+        beam: (N, 6) numpy array, columns [x, a, y, b, t, E]
+        magnet.TM: (M, 10) numpy array, first 5 columns are coeffs, last 5 columns are powers
+        """
+        beam = np.asarray(self.list)
+        N = beam.shape[0]
+        M = magnet.TM.shape[0]
 
-            return Beam
-        
-def Beam_trans (magnet: Magnets, beam: list):
-    beam_out = []
-    for particle in beam:
-        coordinate = particle[:5]
-        coordinate.append((particle[-1] -  magnet.reference_energy)/magnet.reference_energy) # [x, a, y, b, t, delta]
+        # coordinate = [x, a, y, b, t, delta]
+        delta = (beam[:, 5] - magnet.reference_energy) / magnet.reference_energy
+        coordinate = np.hstack([beam[:, :5], delta[:, np.newaxis]])  # shape (N,6)
 
-        particle_out = [0, 0, 0, 0, 0] # [x, a, y, b, t]
-        for line in magnet.TM:
-            for i, coeff in enumerate(line[:5]):
-                if coeff != 0:
-                    temp = 1
-                    for (coor, power) in zip(coordinate, line[5:]):
-                        temp *= coor**power
-                    particle_out[i] += temp * coeff
-        particle_out.append(particle[-1]) # [x, a, y, b, t, E] at Exit
-        beam_out.append(particle_out)
-    return beam_out
+        # TM coeffs and powers
+        coeffs = magnet.TM[:, :5]  # shape (M,5)
+        powers = magnet.TM[:, 5:]  # shape (M,5)
 
-def Aline (x, y, A, B, C):
-    return A*x + B*y + C
-def Beam_hit (magnet: Magnets, focalplane: Focalplane, beam: list):
-    record = [] # list of (l, y) in [m]
-    count = 0
+        # Initialize output
+        beam_out = np.zeros((N, 5))
 
-    for particle in beam:
-        for (node1, node2) in zip(focalplane.geometry[:-1], focalplane.geometry[1:]):
-            if Aline(node1[0], node1[1], -1, particle[1], particle[0] - particle[1]*magnet.length) == 0:
-                record.append([node1[2], particle[2] + (node1[1] - magnet.length) * particle[3]])
-                count += 1
-                break
-            elif Aline(node1[0], node1[1], -1, particle[1], particle[0] - particle[1]*magnet.length) * Aline(node2[0], node2[1], -1, particle[1], particle[0] - particle[1]*magnet.length) < 0:
-                # calculate intersection point
-                denominator = particle[1]*(node2[1] - node1[1])/(node2[0] - node1[0]) - 1
-                x0 = (particle[1] * (node1[0] * (node2[1] - node1[1]) / (node2[0] - node1[0]) - node1[1]) - (particle[0] - particle[1]*magnet.length)) / denominator
-                z0 = ((node1[0] * (node2[1] - node1[1]) / (node2[0] - node1[0]) - node1[1]) - (node2[1] - node1[1]) / (node2[0] - node1[0]) * (particle[0] - particle[1]*magnet.length)) / denominator
+        # # 对每一列 i=0..4 进行计算
+        # for i in range(5):
+        #     # coeffs[:,i] shape (M,)
+        #     # powers shape (M,5)
+        #     # coordinate shape (N,6) -> use first 6 columns for monomial calculation
+        #     # 每个 TM line 计算对应 monomial
+        #     monomials = np.prod(coordinate[:, np.newaxis, :] ** powers, axis=2)  # shape (N,M)
+        #     # multiply by coeffs
+        #     beam_out[:, i] = np.sum(monomials * coeffs[:, i][np.newaxis, :], axis=1)
+        # # append original E as last column
+        # beam_out = np.hstack([beam_out, beam[:, 5:6]])  # shape (N,6)
+        # monomials: shape (N,M)
+        monomials = np.prod(coordinate[:, None, :] ** powers[None, :, :], axis=2)  # shape (N,M)
+        # beam_out: shape (N,5)
+        beam_out = monomials @ coeffs  # 矩阵乘法
 
-                record.append([node1[2] + np.sqrt((x0 - node1[0]) ** 2 + (z0 - node1[1])**2), particle[2] + particle[3] * (z0 - magnet.length)])
-                count += 1
-                break
+        beam_new = copy.deepcopy(self)
+        beam_new.list = beam_out
+        beam_new.compute_energy_stats()
+        beam_new.N_beampart = len(beam_out)
+        return beam_new
 
-    print(f"{count}/{len(beam)} particles hit the focal plane.")
+    def plot_energy_spectrum(self, **params):
+        bin_width = params.get('bin_width')
+        figsize = params.get('figsize', None)
+        title = params.get('title', "Proton Energy Spectrum")
+        filename = params.get('filename')
+        data_filename = params.get('data_filename')
+        show = params.get('show', False)
+        if self.list is None:
+            raise ValueError("Beam.list is empty")
 
-    return record
+        data = self.list[:, -1]  # 最后一列
+        plt.figure(figsize=figsize)
+        if bin_width:
+            bin_start = np.floor(data.min() / bin_width) * bin_width
+            bin_end = np.ceil(data.max() / bin_width) * bin_width
+            bins = np.arange(bin_start, bin_end + bin_width, bin_width)
+        else:
+            bins = 'auto'  # 自适应
+        counts, bin_edges, _ = plt.hist(data, bins=bins, edgecolor='black')
+        plt.xlabel("proton energy $E_{\\text{p}}\\ [\\text{MeV}]$")
+        plt.ylabel("counts")
+        plt.title(title)
+        plt.tight_layout()
+        if filename:
+            os.makedirs(os.path.dirname(filename), exist_ok=True)
+            plt.savefig(f"{filename}.png", dpi=300, bbox_inches='tight')
+        if show:
+            plt.show()
+        plt.close()
+        if data_filename:
+            os.makedirs(os.path.dirname(data_filename), exist_ok=True)
+            bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2.
+            data_output = np.column_stack((bin_centers, counts))
+            np.savetxt(data_filename, data_output, delimiter='\t', fmt=("%.3f", "%.1f"))
+
+    def hit(self, focalplane: Focalplane):
+        record = []  # list of (l, y) in [m]
+
+        # shapt: [N_part, N_node], directed length of nodes to particle trajectories
+        node_distances_x = (focalplane.geometry[None, :, 0] - self.list[:, None, 0] -
+                            self.list[:, None, 1] * (focalplane.geometry[None, :, 1]))
+
+        # 判断交点数量
+        mask = node_distances_x >= 0
+        transitions = np.diff(mask.astype(int), axis=1)  # [N_part, N_node-1], +1/-1 means the trajectory pass through the two nodes
+        has_transition = transitions != 0
+        # transition_indices = [np.where(row != 0)[0] for row in transitions]
+        N_intersection_points = np.sum(has_transition, axis=1)
+        if np.any(N_intersection_points >= 2):  # 多交点: 焦平面设置不合理, 报错
+            raise ValueError("Too many transitions (>=2)!")
+        # 对只允许一个交点的情况，找到索引位置
+        # 方法：argmax 返回第一个 True 的位置，但对全 False 会给 0，需要屏蔽（设置-1）
+        first_transition_idx = np.argmax(has_transition, axis=1)
+        first_transition_idx_selected = first_transition_idx[np.any(has_transition, axis=1)]
+        particle_selected = self.list[np.any(has_transition, axis=1)]
+        node_distance_x_selected = node_distances_x[np.any(has_transition, axis=1), :]  # [N_hits, N_node]
+
+        N_hits = np.count_nonzero(np.any(has_transition, axis=1))
+        rows = np.arange(N_hits)
+        # 取两侧节点的 node_distance_x, [N_hits]
+        d0 = node_distance_x_selected[rows, first_transition_idx_selected]
+        d1 = node_distance_x_selected[rows, first_transition_idx_selected + 1]
+        # 对应的几何节点 (x, z, l), [N_hits, 3]
+        g0 = focalplane.geometry[first_transition_idx_selected]
+        g1 = focalplane.geometry[first_transition_idx_selected + 1]
+        # 插值 (逐元素广播)
+        x_hits, z_hits, l_hits = ((-d0[:, None] * g1 + d1[:, None] * g0) /
+                                  (-d0 + d1)[:, None]).T
+        y_hits = particle_selected[:, 2] + particle_selected[:, 3] * z_hits
+
+        return ProtonHits(x_hits, y_hits, z_hits, l_hits)
+
+
+class ProtonHits:
+    def __init__(self, x_hits, y_hits, z_hits, l_hits):
+        self.x_hits, self.y_hits, self.z_hits = x_hits, y_hits, z_hits
+        self.l_hits = l_hits
+        self.N_hits = len(self.l_hits)
+        self.std_dev_l = np.std(self.l_hits)
+        self.x_mean, self.y_mean, self.z_mean = np.mean(self.x_hits), np.mean(self.y_hits), np.mean(self.z_hits)
+        self.l_mean = np.mean(self.l_hits)
