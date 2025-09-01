@@ -30,6 +30,12 @@ class Beam:
     @classmethod
     def generate(cls, target: Target, aperture: Aperture, energy, Npart, cross_section=None,
                  E_scatt=True, E_loss=True):
+        '''
+        The most realistic way to generate a beam.
+        Other methods (useful for testing):
+            generate_monoenergetic_parallel,
+            generate_monoenergetic_perpendicular.
+        '''
         if target == None or aperture == None:
             raise Exception("you CANNOT generate a beam with no Target or Aperture specified!")
 
@@ -100,6 +106,10 @@ class Beam:
         return obj
     @classmethod
     def generate_monoenergetic_parallel(cls, target:Target, energy, Npart):
+        '''
+        Generate a monoenergetic parallel beam:
+        E = E_n, a = b = 0
+        '''
         if target == None:
             raise Exception("you CANNOT generate a beam with no Target specified!")
         # generate beam list, [x, a, y, b, t, E]
@@ -112,12 +122,17 @@ class Beam:
         return obj
 
     @classmethod
-    def generate_monoenergetic_cone(cls, target:Target, energy, Npart):
+    def generate_monoenergetic_cone(cls, target:Target, energy, Npart, a_max):
+        '''
+        Generate a monoenergetic cone-like beam:
+        E = E_n, x = y = 0, |a(b)| <= a_max 
+        '''
         if target == None:
             raise Exception("you CANNOT generate a beam with no Target specified!")
         # generate beam list, [x, a, y, b, t, E]
         beam = np.zeros((Npart, 6))
-        beam[:, 0], beam[:, 2] = target.get_initialPosition_N(Npart)
+        beam[:, 1] = np.random.uniform(-a_max, a_max, Npart)
+        beam[:, 3] = np.random.uniform(-a_max, a_max, Npart)
         beam[:, -1] = energy
         obj = cls(beam, len(beam), None, None)
         obj.compute_energy_stats()
