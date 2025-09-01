@@ -276,7 +276,7 @@ class Focalplane:
         Parameters:
         type: 'normal' or 'arbitrary'
         position: focal plane position [m] behind magnets' exit
-        geometry: (x, z) list of tuples, z = 0 @ position
+        geometry: (x, z) list of tuples, z = 0 @ magnets' exit
         '''
         self.type = type
         self.position = position

@@ -139,7 +139,6 @@ class Beam:
         """
         beam = np.asarray(self.list)
         N = beam.shape[0]
-        M = magnet.TM.shape[0]
 
         # coordinate = [x, a, y, b, t, delta]
         delta = (beam[:, 5] - magnet.reference_energy) / magnet.reference_energy
@@ -151,22 +150,10 @@ class Beam:
 
         # Initialize output
         beam_out = np.zeros((N, 5))
-
-        # # 对每一列 i=0..4 进行计算
-        # for i in range(5):
-        #     # coeffs[:,i] shape (M,)
-        #     # powers shape (M,5)
-        #     # coordinate shape (N,6) -> use first 6 columns for monomial calculation
-        #     # 每个 TM line 计算对应 monomial
-        #     monomials = np.prod(coordinate[:, np.newaxis, :] ** powers, axis=2)  # shape (N,M)
-        #     # multiply by coeffs
-        #     beam_out[:, i] = np.sum(monomials * coeffs[:, i][np.newaxis, :], axis=1)
-        # # append original E as last column
-        # beam_out = np.hstack([beam_out, beam[:, 5:6]])  # shape (N,6)
-        # monomials: shape (N,M)
+        # Compute monomials
         monomials = np.prod(coordinate[:, None, :] ** powers[None, :, :], axis=2)  # shape (N,M)
         # beam_out: shape (N,5)
-        beam_out = monomials @ coeffs  # 矩阵乘法
+        beam_out = monomials @ coeffs
 
         beam_new = copy.deepcopy(self)
         beam_new.list = beam_out
@@ -210,9 +197,7 @@ class Beam:
             np.savetxt(data_filename, data_output, delimiter='\t', fmt=("%.3f", "%.1f"))
 
     def hit(self, focalplane: Focalplane):
-        record = []  # list of (l, y) in [m]
-
-        # shapt: [N_part, N_node], directed length of nodes to particle trajectories
+        # shape: [N_part, N_node], directed length of nodes to particle trajectories
         node_distances_x = (focalplane.geometry[None, :, 0] - self.list[:, None, 0] -
                             self.list[:, None, 1] * (focalplane.geometry[None, :, 1]))
 
