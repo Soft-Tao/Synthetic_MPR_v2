@@ -173,8 +173,8 @@ class Target:
             x_arr = np.array(x_list[:Np])
             y_arr = np.array(y_list[:Np])
         elif self.shape == "rectangle":
-            x_arr = np.random.uniform(-self.geometry[0] / 2, self.geometry[0] / 2)
-            y_arr = np.random.uniform(-self.geometry[1] / 2, self.geometry[1] / 2)
+            x_arr = np.random.uniform(-self.geometry[0] / 2, self.geometry[0] / 2, Np)
+            y_arr = np.random.uniform(-self.geometry[1] / 2, self.geometry[1] / 2, Np)
         else:
             raise NotImplementedError("Target: Invalid shape!")
 
