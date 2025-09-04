@@ -243,7 +243,7 @@ class Aperture:
         if self.shape == "circle":
             return x ** 2 + y ** 2 <= self.geometry[0] ** 2
         elif self.shape == "rectangle":
-            return (np.abs(x) <= self.geommetry[0] / 2 and np.abs(y) <= self.geometry[1] / 2)
+            return np.logical_and(np.abs(x) <= self.geometry[0] / 2, np.abs(y) <= self.geometry[1] / 2)
 
 class Magnets:
     def __init__(self, file_path: str, reference_energy: float):
