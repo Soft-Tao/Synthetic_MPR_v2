@@ -122,13 +122,11 @@ class Beam:
         return obj
 
     @classmethod
-    def generate_monoenergetic_cone(cls, target:Target, energy, Npart, a_max):
+    def generate_monoenergetic_cone(cls, energy, Npart, a_max):
         '''
         Generate a monoenergetic cone-like beam:
         E = E_n, x = y = 0, |a(b)| <= a_max 
         '''
-        if target == None:
-            raise Exception("you CANNOT generate a beam with no Target specified!")
         # generate beam list, [x, a, y, b, t, E]
         beam = np.zeros((Npart, 6))
         beam[:, 1] = np.random.uniform(-a_max, a_max, Npart)
