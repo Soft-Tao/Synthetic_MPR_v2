@@ -12,7 +12,7 @@ class MPR:
     It has the following functions:
     1. calculate l-E relation, energy resolution in a given energy range.
     2. find optimal straight focal plane position (position and tilt angle).
-    3. calculate response matrix of the system.
+    3. calculate response matrix of the system. (to-do, need information of the detectors.)
     '''
     def __init__(self, target: Target, aperture: Aperture, magnet: Magnets, focalplane = None):
         self.target = target
