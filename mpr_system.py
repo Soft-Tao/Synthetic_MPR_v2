@@ -62,7 +62,7 @@ class MPR:
         
         self.resolution = resolution
 
-    def optimal_focalplane(self, target: Target, aperture: Aperture, magnet: Magnets, merit_weight: str, fp_position: list, fp_angle: list, merit_weight_lst = None):
+    def optimal_focalplane(self, merit_weight: str, fp_position: list, fp_angle: list, merit_weight_lst = None):
         '''
         About the weight:
         Merit is a zero-dimensional number to represent an average energy resolution of the system. Weight is what we need when calculating the average.
