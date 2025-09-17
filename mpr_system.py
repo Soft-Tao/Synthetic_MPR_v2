@@ -23,7 +23,7 @@ class MPR:
 
     def performance(self, E_range = np.linspace(9, 21, 13), N_part = 50000, plot_show = True, plot_save = False):
         if self.focalplane is None:
-            raise Exception("focalplane is not specified! Please specify focalplane first or run optimal_focalplane(). to find one.")
+            raise Exception("focalplane is not specified! Please specify focalplane first or run optimal_focalplane() to find one.")
         output = []
         cross_section = ENDF_differential_cross_section.differential_cross_section(
             'E4R84432_e4.endf.endf2gnd.endf')
@@ -81,7 +81,7 @@ class MPR:
         for i, position in enumerate(fp_position):
             for j, angle in enumerate(fp_angle):
                 print(f"\rProcess: {100*(i*len(fp_angle)+j)/(len(fp_position)*len(fp_angle)):.2f}%", end='')
-                geometry = [(x, position + x * np.tan(angle)) for x in np.linspace(-0.5, 0.5, 11)]
+                geometry = [(x, position + x * np.tan(angle*np.pi/180)) for x in np.linspace(-0.5, 0.5, 11)]
                 self.focalplane = Focalplane('arbitrary', position=position, geometry=geometry)
 
                 with contextlib.redirect_stdout(open(os.devnull, 'w')):
@@ -92,16 +92,15 @@ class MPR:
         print('\n')
         print(f"Optimization of the focal plane is completed. Minimum merit value is {merit_matrix[min_index[0]][min_index[1]]:.4f}." \
         f"The optimal focal plane position is {fp_position[min_index[0]]: .4f}, tilt angle with 'normal' direction is {fp_angle[min_index[1]]: .4f}.")
-        geometry_optimal = [(x, fp_position[min_index[0]] + x * np.tan(fp_angle[min_index[1]])) for x in np.linspace(-0.5, 0.5, 11)]
+        geometry_optimal = [(x, fp_position[min_index[0]] + x * np.tan(fp_angle[min_index[1]]*np.pi/180)) for x in np.linspace(-0.5, 0.5, 11)]
         self.focalplane = Focalplane('arbitrary', position=fp_position[min_index[0]], geometry=geometry_optimal)
-
-target = Target(type='CH2', mass_thickness=15, shape="circle", area=0.001, H_W_ratio=1.0)
-
-aperture = Aperture(distance=0.2, shape="circle", solid_angle=40, H_W_ratio=1.0)
-
-Magnet = Magnets('beam_trans_benchmark/TM.txt', reference_energy=14)
-
-mpr = MPR(target, aperture, Magnet)
-
-mpr.optimal_focalplane(target, aperture, Magnet, merit_weight='uniform', fp_position=np.linspace(0, 0.5, 8), fp_angle=np.linspace(10, 60, 25))
-mpr.performance(plot_show=True, N_part=5000)
+    
+    def save_focalplane(self, save_path: str):
+        if self.focalplane is None:
+            raise Exception("focalplane is not specified! Please specify focalplane first or run optimal_focalplane() to find one.")
+        else:
+            with open(os.path.join(save_path, "fp.txt"), 'w') as f:
+                for line in self.focalplane.geometry:
+                    f.write(f"{line[0]} {line[1]}\n")
+            f.close()
+            print(f"current focalplane has been successfully saved as: {os.path.join(save_path, "fp.txt")}!")
