@@ -18,7 +18,18 @@ For you to better understand the setting of this synthetic system, see the schem
 
 Simply using `Target`, `Aperture`, `Magnets` and `Focalplane`, you can specify a new class object: `MPR`. It's a great way to represent your MPR system!
 
-Up to now, it has the following functions:
+```python
+mpr = MPR(target, aperture, magnet, focalplane)
+```
+
+Or, if you're not sure about where to place your focal plane, it's OK to initialize without a `FocalPlane` object:
+
+```python
+mpr = MPR(target, aperture, magnet)
+```
+
+Up to now, the `MPR` object has the following functions:
 
 1. `MPR.performance()`: calculates l-E relation and energy resolution in a given energy range.
 2. `MPR.optimal_focalplane()`: finds optimal **straight** focal plane position (including position and tilt angle) under given boundaries.
+3. `MPR.save_focalplane()`: saves the current focal plane's geometry (list of (x, z) tuples) to the given path.
