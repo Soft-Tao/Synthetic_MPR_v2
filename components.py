@@ -269,7 +269,7 @@ class Magnets:
         self.TM = np.array(self.TM)
 
 class Focalplane:
-    def __init__(self, type: str, position: float, geometry: list=None, length=1):
+    def __init__(self, type: str, position: float=None, geometry: list=None, length=1):
         '''
         Initialize a Focalplane object.
 
@@ -282,6 +282,8 @@ class Focalplane:
         self.position = position
 
         if self.type == 'normal':
+            if self.position is None:
+                raise Exception("you must provide [position] if you're trying to initiate a normal fp!")
             self.geometry = [(x, self.position, x + length/2.) for x in np.linspace(-length/2., length/2., 11)]
             self.geometry = np.array(self.geometry)
         elif self.type == 'arbitrary':
