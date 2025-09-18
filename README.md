@@ -31,5 +31,6 @@ mpr = MPR(target, aperture, magnet)
 Up to now, the `MPR` object has the following functions:
 
 1. `MPR.performance()`: calculates l-E relation and energy resolution in a given energy range.
-2. `MPR.optimal_focalplane()`: finds optimal **straight** focal plane position (including position and tilt angle) under given boundaries.
+2. `MPR.optimal_focalplane()`: finds optimal **straight** focal plane position (including position and tilt angle) under given boundaries. This method would automatically **overwrite** self.focalplane. So, if you initialized `MPR` without providing `FocalPlane`, you should run this method before others.
 3. `MPR.save_focalplane()`: saves the current focal plane's geometry (list of (x, z) tuples) to the given path.
+4. `MPR.response_matrix()`: calculates response matrix of the MPR system.
