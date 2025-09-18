@@ -5,6 +5,7 @@ from processes import Beam
 import ENDF_differential_cross_section
 import contextlib
 import os
+from tqdm import tqdm
 
 class MPR:
     '''
@@ -28,12 +29,16 @@ class MPR:
         cross_section = ENDF_differential_cross_section.differential_cross_section(
             'E4R84432_e4.endf.endf2gnd.endf')
 
+        if plot_show: plt.figure(figsize=(10, 4))
         for i, ene in enumerate(E_range):
             print(f"[{i}/{len(E_range)}] energy: {ene:.1f} MeV")
             beam = Beam.generate(self.target, self.aperture, ene, N_part, cross_section=cross_section)
             beam_transported = beam.trans(self.magnet)
             record = beam_transported.hit(self.focalplane)
+            if plot_show: plt.scatter(record.l_hits, record.y_hits, s=0.5, label = f"{ene} MeV")
             output.append([ene, record.l_mean, record.std_dev_l])
+        if plot_show: plt.legend(markerscale = 20)
+        if plot_show: plt.show()
         
         output = np.array(output)
         if plot_show:
@@ -92,7 +97,7 @@ class MPR:
         print('\n')
         print(f"Optimization of the focal plane is completed. Minimum merit value is {merit_matrix[min_index[0]][min_index[1]]:.4f}." \
         f"The optimal focal plane position is {fp_position[min_index[0]]: .4f}, tilt angle with 'normal' direction is {fp_angle[min_index[1]]: .4f}.")
-        geometry_optimal = [(x, fp_position[min_index[0]] + x * np.tan(fp_angle[min_index[1]]*np.pi/180)) for x in np.linspace(-0.5, 0.5, 11)]
+        geometry_optimal = [(x, fp_position[min_index[0]] + x * np.tan(fp_angle[min_index[1]]*np.pi/180)) for x in np.linspace(-0.5, 0.5, 101)]
         self.focalplane = Focalplane('arbitrary', position=fp_position[min_index[0]], geometry=geometry_optimal)
     
     def save_focalplane(self, save_path: str):
@@ -104,3 +109,33 @@ class MPR:
                     f.write(f"{line[0]} {line[1]}\n")
             f.close()
             print(f"current focalplane has been successfully saved as: {os.path.join(save_path, "fp.txt")}!")
+    
+    def response_matrix(self, E_min: float = 10, E_max: float = 20, sample_times:int = 100000 , N_part: int = 100):
+        '''
+        Calculates the response_matrix of one MPR system.
+
+        Proton strike position l: l_bins depends on the geometry of focalplane ((x, z) nodes will be regarded as bin edges).
+        Parameters:
+        E_min, E_max: minimun and maximun of the incoming nuetron energy.
+        N_part: length of Beam object per sampling. (Total counts = sample_times * N_part)
+        '''
+        cross_section = ENDF_differential_cross_section.differential_cross_section(
+            'E4R84432_e4.endf.endf2gnd.endf')
+        E_lst = []
+        l_lst = []
+        print("Start sampling...")
+        for i in tqdm(range(sample_times)):
+            E = np.random.uniform(E_min, E_max)
+            E_lst += [E for x in range(N_part)]
+            beam = Beam.generate(self.target, self.aperture, E, N_part, cross_section)
+            beam_transported = beam.trans(self.magnet)
+            record = beam_transported.hit(self.focalplane)
+            l_lst += record.l_hits.tolist()
+        print(f"Total counts of recorded protons: {sample_times * N_part}")
+        plt.figure()
+        plt.title('Response Matrix')
+        plt.hist2d(l_lst, E_lst, bins=(self.focalplane.geometry[:,2], np.linspace(E_min, E_max, 201)), cmap = 'jet')
+        plt.colorbar()
+        plt.xlabel('Proton strike position [m]')
+        plt.ylabel('Incoming neutron energy [MeV]')
+        plt.show()
