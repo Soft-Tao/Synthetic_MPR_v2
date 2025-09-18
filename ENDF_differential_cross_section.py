@@ -9,7 +9,6 @@ def read_ang_dist_data(filename):
     E = np.array(mat.section_data[4, 2]['legendre']['E'])
     a_l = np.array(mat.section_data[4, 2]['legendre']['a_l'])
     ones_col = np.ones((a_l.shape[0], 1))
-    # 水平拼接：在每一行前加一个 1
     a_l_new = np.hstack((ones_col, a_l))
     return E, a_l_new
     # return E, a_l
@@ -24,7 +23,6 @@ def find_closest_index(array, value):
     return idx
 
 def compute_f(theta, coeffs):
-    # theta是弧度数组，coeffs是a_l列表
     cos_theta = np.cos(theta)
     f = np.zeros_like(theta)
     for l, a_l in enumerate(coeffs):
@@ -33,10 +31,6 @@ def compute_f(theta, coeffs):
         f += (2*l + 1)/2 * a_l * P_l(cos_theta)
     return f
 def make_f_v(coeffs):
-    """
-    输入: coeffs 系数列表 [a_0, a_1, ..., a_l]
-    输出: f(v) 函数, v=cos(theta)
-    """
     coeffs = np.asarray(coeffs)
     def f(v):
         v_arr = np.atleast_1d(v)
@@ -55,10 +49,6 @@ def int_P(l):
         return lambda x:x
 
 def make_g_v(coeffs):
-    """
-    输入: coeffs 系数列表 [a_0, a_1, ..., a_l]
-    输出: f(v) 函数, v=cos(theta)
-    """
     coeffs = np.asarray(coeffs)
     def g(v):
         v_arr = np.atleast_1d(v)
@@ -111,25 +101,16 @@ if __name__ == "__main__":
     cross_section = differential_cross_section(filename)
 
     plt.figure(figsize=(5,4))
-    plt.plot(cross_section.E_list, cross_section.sigma_s_list)  # x轴用角度（度）表示
+    plt.plot(cross_section.E_list, cross_section.sigma_s_list)
     plt.ylabel('$\\sigma_{\\text{s}}\\ [\\text{barns}]$')
     plt.xlabel('$E_{\\text{n}}\\ [\\text{eV}]$')
     plt.title('n-p Scattering $\\sigma_{\\text{s}}$')
-    # plt.xlim((0,90))
-    # plt.ylim(bottom=0)
     plt.xscale('log')
     plt.yscale('log')
     plt.grid(True)
     plt.legend()
     plt.tight_layout()
-    # plt.savefig('all.png',dpi=300)
-    # plt.savefig('all.pdf',dpi=300)
     plt.show()
-    #
-    # idx_14 = np.argmin(np.abs(cross_section.E_list - 14.0E6))
-    # print(f"{cross_section.sigma_s_list[idx_14]} barns")
-
-
 
     f_v = cross_section.compute_f(energy_input)
     sigma_s = cross_section.compute_sigma_s(energy_input)
@@ -152,8 +133,6 @@ if __name__ == "__main__":
     plt.grid(True)
     plt.legend()
     plt.tight_layout()
-    # plt.savefig('all.png',dpi=300)
-    # plt.savefig('all.pdf',dpi=300)
     plt.show()
 
     u_n_lab_list = np.cos(theta_n_lab_list)
@@ -169,6 +148,4 @@ if __name__ == "__main__":
     plt.grid(True)
     plt.legend()
     plt.tight_layout()
-    # plt.savefig('all.png',dpi=300)
-    # plt.savefig('all.pdf',dpi=300)
     plt.show()
