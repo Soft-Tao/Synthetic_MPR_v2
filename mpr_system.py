@@ -110,14 +110,14 @@ class MPR:
             f.close()
             print(f"current focalplane has been successfully saved as: {os.path.join(save_path, "fp.txt")}!")
     
-    def response_matrix(self, E_min: float = 10, E_max: float = 20, sample_times:int = 100000 , N_part: int = 100):
+    def response_matrix(self, E_min: float = 10, E_max: float = 20, sample_times:int = 100000 , N_part: int = 100, save_path = None, plot_show = True, plot_save = False):
         '''
         Calculates the response_matrix of one MPR system.
 
         Proton strike position l: l_bins depends on the geometry of focalplane ((x, z) nodes will be regarded as bin edges).
         Parameters:
         E_min, E_max: minimun and maximun of the incoming nuetron energy.
-        N_part: length of Beam object per sampling. (Total counts = sample_times * N_part)
+        N_part: length of Beam object per sampling. (Total counts = sample_times * N_part) The final fluctuation of the response matrix would be decreased by increasing total_counts.
         '''
         cross_section = ENDF_differential_cross_section.differential_cross_section(
             'E4R84432_e4.endf.endf2gnd.endf')
@@ -133,9 +133,15 @@ class MPR:
             l_lst += record.l_hits.tolist()
         print(f"Total counts of recorded protons: {sample_times * N_part}")
         plt.figure()
-        plt.title('Response Matrix')
-        plt.hist2d(l_lst, E_lst, bins=(self.focalplane.geometry[:,2], np.linspace(E_min, E_max, 201)), cmap = 'jet')
-        plt.colorbar()
-        plt.xlabel('Proton strike position [m]')
-        plt.ylabel('Incoming neutron energy [MeV]')
-        plt.show()
+        H, l_edges, E_edges, _ = plt.hist2d(l_lst, E_lst, bins=(self.focalplane.geometry[:,2], np.linspace(E_min, E_max, 201)), cmap = 'jet')
+        if plot_show:
+            plt.title('Response Matrix')
+            plt.colorbar()
+            plt.xlabel('Proton strike position [m]')
+            plt.ylabel('Incoming neutron energy [MeV]')
+            plt.show()
+        if plot_save:
+            if save_path is None:
+                raise Exception("you CANNOT save the response matrix without specifying a save path!")
+            else:
+                np.savez(os.path.join(save_path, "response_matrix.npz"), H = H, l_edges = l_edges, E_edges = E_edges)
