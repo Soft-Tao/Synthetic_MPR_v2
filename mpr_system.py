@@ -108,7 +108,7 @@ class MPR:
                 for line in self.focalplane.geometry:
                     f.write(f"{line[0]} {line[1]}\n")
             f.close()
-            print(f"current focalplane has been successfully saved as: {os.path.join(save_path, "fp.txt")}!")
+            print(f"current focalplane has been successfully saved as: {os.path.join(save_path, 'fp.txt')}!")
     
     def response_matrix(self, E_min: float = 10, E_max: float = 20, sample_times:int = 100000 , N_part: int = 100, save_path = None, plot_show = True, plot_save = False):
         '''
