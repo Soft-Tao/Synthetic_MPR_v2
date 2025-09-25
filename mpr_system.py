@@ -29,13 +29,16 @@ class MPR:
         cross_section = ENDF_differential_cross_section.differential_cross_section(
             'E4R84432_e4.endf.endf2gnd.endf')
 
-        if plot_show: plt.figure(figsize=(10, 4))
+        if plot_show: 
+            plt.figure(figsize=(10, 4),dpi = 140)
+            plt.xlabel("l [m]")
+            plt.ylabel("y [m]")
         for i, ene in enumerate(E_range):
             print(f"[{i}/{len(E_range)}] energy: {ene:.1f} MeV")
             beam = Beam.generate(self.target, self.aperture, ene, N_part, cross_section=cross_section)
             beam_transported = beam.trans(self.magnet)
             record = beam_transported.hit(self.focalplane)
-            if plot_show: plt.scatter(record.l_hits, record.y_hits, s=0.5, label = f"{ene} MeV")
+            if plot_show: plt.scatter(record.l_hits, record.y_hits, s=0.1, label = f"{ene} MeV")
             output.append([ene, record.l_mean, record.std_dev_l])
         if plot_show: plt.legend(markerscale = 20)
         if plot_show: plt.show()
