@@ -13,7 +13,7 @@ class MPR:
     It has the following functions:
     1. calculate l-E relation, energy resolution in a given energy range.
     2. find optimal straight focal plane position (position and tilt angle).
-    3. calculate response matrix of the system. (to-do, need information of the detectors.)
+    3. calculate response matrix of the system.
     '''
     def __init__(self, target: Target, aperture: Aperture, magnet: Magnets, focalplane = None):
         self.target = target
@@ -113,9 +113,9 @@ class MPR:
             f.close()
             print(f"current focalplane has been successfully saved as: {os.path.join(save_path, 'fp.txt')}!")
     
-    def response_matrix(self, E_min: float = 10, E_max: float = 20, sample_times:int = 100000 , N_part: int = 100, save_path = None, plot_show = True, plot_save = False):
+    def response_matrix(self, E_min: float = 10, E_max: float = 20, sample_times:int = 100000 , N_part: int = 100, save_path = None, plot_save = False):
         '''
-        Calculates the response_matrix of one MPR system.
+        Calculates the response_matrix of one MPR system. It's normalized to energy-depended efficiency.
 
         Proton strike position l: l_bins depends on the geometry of focalplane ((x, z) nodes will be regarded as bin edges).
         Parameters:
@@ -137,14 +137,29 @@ class MPR:
         print(f"Total counts of recorded protons: {sample_times * N_part}")
         plt.figure()
         H, l_edges, E_edges, _ = plt.hist2d(l_lst, E_lst, bins=(self.focalplane.geometry[:,2], np.linspace(E_min, E_max, 201)), cmap = 'jet')
-        if plot_show:
-            plt.title('Response Matrix')
-            plt.colorbar()
-            plt.xlabel('Proton strike position [m]')
-            plt.ylabel('Incoming neutron energy [MeV]')
-            plt.show()
+        # normalize
+        sum_col = np.sum(H, axis=0)
+        sum_col[sum_col == 0] = 1
+        H = H / sum_col
+        # take efficiency into account
+        efficiency_lst = []
+        print("Calculating efficiency in each energy bin...")
+        for i in tqdm(range(H.shape[1])):
+            Ec = (E_edges[i] + E_edges[i+1]) / 2
+            beam_ = Beam.generate(self.target, self.aperture, Ec, 50000, cross_section)
+            efficiency_lst.append(beam_.N_beampart / beam_.N_neutrons)
+        #efficiency_lst_reshaped = np.reshape(np.array(efficiency_lst), (-1, 1))
+        H = H * np.array(efficiency_lst)
         if plot_save:
             if save_path is None:
                 raise Exception("you CANNOT save the response matrix without specifying a save path!")
             else:
                 np.savez(os.path.join(save_path, "response_matrix.npz"), H = H, l_edges = l_edges, E_edges = E_edges)
+        aspect_ratio = (l_edges[-1] - l_edges[0]) / (E_edges[-1] - E_edges[0])
+
+        ax = plt.imshow(H.T, origin='lower', extent=[l_edges[0], l_edges[-1], E_edges[0], E_edges[-1]], cmap='jet', aspect=aspect_ratio)
+        plt.title('Response Matrix')
+        plt.colorbar()
+        plt.xlabel('Proton strike position [m]')
+        plt.ylabel('Incoming neutron energy [MeV]')
+        plt.show()
