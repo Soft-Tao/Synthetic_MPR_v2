@@ -161,3 +161,14 @@ mpr.save_focalplane(save_path = save_path)
 
 mpr.response_matrix(save_path = save_path, plot_save = True)
 ```
+
+## I/O文件
+
+这里将列出 `Syn_MPR_v2`中每个代码的所有额外必需输入文件和可能的输出文件。截面数据文件 (*E4R84432_e4.endf.endf2gnd.endf*)和能量阻止本领数据文件 (*ESP(PSTAR).dat*)不包含在内。
+
+| **代码名称** | **输入文件** | **输出文件** |
+|---------------|-------------------|--------------------|
+| `Magnets.__init__()` | *TM.txt* (由 COSY INFINITY输出)参见 [COSY手册文件](https://www.bmtdynamics.org/cosy/manual/). | - |
+| `MPR.performance()` | - | *L_E_relation.png*和 *energy_resolution.png*如果可选参数 `plot_save = True`. |
+| `MPR.save_focalplane()` | - | *fp.txt*将在参数 `save_path`指定的目录中. |
+| `MPR.response_matrix()` | - | *response_matrix.npz*包含响应矩阵的二维数组、l分箱边界和 En分箱边界（两者都是一维数组）。在 `plot_save = True`时，位于 `save_path`中. |
