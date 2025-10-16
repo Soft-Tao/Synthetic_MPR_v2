@@ -2,7 +2,7 @@
 
 > For users: TM.txt is incomplete, it's still runable but the results will be non-physical. Please contact Xutao Xu for a realistic TM.txt if you want.
 
-[中文翻译请点击这里(by DeepSeek-R1, Sep 25 2025)](#chinese-translation)
+[中文翻译请点击这里(by DeepSeek-R1, Oct 16 2025)](#chinese-translation)
 
 ## A quick start
 
