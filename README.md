@@ -79,41 +79,12 @@ mpr.response_matrix(save_path = save_path, plot_save = True)
 
 All extra required input files and possible output files of each code in `Syn_MPR_v2` will be listed here. Cross section data file (*E4R84432_e4.endf.endf2gnd.endf*) and energy stopping power data file (*ESP(PSTAR).dat*) are not included.
 
-|
-**code name**
-|
-**input file(s)**
-|
-**output file(s)**
-|
-|
-`Magnets.__init__()`
-|
-*TM.txt* (output by COSY INFINITY) see in [COSY Manual Files](https://www.bmtdynamics.org/cosy/manual/).
-|
-\
-|
-|
-`MPR.performance()`
-|
-\
-|
-*L_E_relation.png* and *energy_resolution.png* if optional parameter `plot_save = True`.
-|
-|
-`MPR.save_focalplane()`
-|
-\
-|
-*fp.txt* will be in the directory specified by parameter `save_path`.
-|
-|
-`MPR.response_matrix()`
-|
-\
-|
-*response_matrix.npz* including the 2d array of response matrix, l bin edges and En bin edges (both are 1d array). In `save_path` when `plot_save = True`.
-｜
+| **code name** | **input file(s)** | **output file(s)** |
+|---------------|-------------------|--------------------|
+| `Magnets.__init__()` | *TM.txt* (output by COSY INFINITY) see in [COSY Manual Files](https://www.bmtdynamics.org/cosy/manual/). | - |
+| `MPR.performance()` | - | *L_E_relation.png* and *energy_resolution.png* if optional parameter `plot_save = True`. |
+| `MPR.save_focalplane()` | - | *fp.txt* will be in the directory specified by parameter `save_path`. |
+| `MPR.response_matrix()` | - | *response_matrix.npz* including the 2d array of response matrix, l bin edges and En bin edges (both are 1d array). In `save_path` when `plot_save = True`. |
 
 ***
 
