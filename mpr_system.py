@@ -84,6 +84,8 @@ class MPR:
         else:
             if merit_weight_lst is None:
                 raise Exception("merit_weight_lst is required when merit_weight is not [uniform]!!!") 
+            else:
+                merit_weight_lst = np.array(merit_weight_lst)
 
         merit_matrix = np.zeros((len(fp_position), len(fp_angle)))
         for i, position in enumerate(fp_position):
