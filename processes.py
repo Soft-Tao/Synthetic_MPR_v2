@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from components import Target, Aperture, Magnets, Focalplane
 import ENDF_differential_cross_section
-from scipy.constants import Avogadro
+from scipy.constants import Avogadro, physical_constants
 import time
 
 def plot_spectrum(xx, **params):
@@ -173,6 +173,111 @@ class Beam:
         beam_new.compute_energy_stats()
         beam_new.N_beampart = len(beam_out)
         return beam_new
+    
+    def trans_3d(self, magnet: Magnets, exit_plane: tuple, save_trace = False, save_path = None, batch_size = 1024):
+        '''
+        Calculate beam trace in 3D Mag-field of magnet using Boris method.
+        **Origin must set at the geometric center of the target**
+        **(x, y, z) coordinate system, reference beam trace is in xy plane @ z=0**
+
+        magnet: Magnets object with self.type = 3d
+        exit_plane: (x0, y0, k) tuple to describe the exit plane after which you should use beam.hit()
+        save_trace: if True, save the traces len(beam) particles to save_path.
+        batch_size: number of particles to do vectorized calculation.
+        '''
+        if save_trace == True and save_path is None:
+            raise ValueError("save_path of particle's traces is not specified.")
+        else:
+            if save_trace: trace = []   
+            beam = np.asarray(self.list) # coordinate = [x, a, y, b, t, E]
+            N = beam.shape[0]
+            # transformation from beam reference to (x,y,z,vx,vy,vz)
+            beam_in = np.zeros((N, 9)) # [x, y, z, vx, vy, vz, m, t, flag] flag = 1 means arrived
+            beam_in[:, 0] = - beam[:, 0]
+            beam_in[:, 2] = beam[:, 2]
+            m0c2 = physical_constants["proton mass"][0] * physical_constants["speed of light in vacuum"][0] ** 2
+            beam_in[:, 6] = (beam[:, -1] * 1e6 * physical_constants["elementary charge"][0] + m0c2) / physical_constants["speed of light in vacuum"][0] ** 2 # mass
+            gamma = (beam[:, -1] * 1e6 * physical_constants["elementary charge"][0]+ m0c2) / m0c2
+            velocity = np.sqrt(1 - 1/gamma**2) * physical_constants["speed of light in vacuum"][0]
+            beam_in[:, 3] = - velocity * beam[:, 1] #vx
+            beam_in[:, 5] = velocity * beam[:, 3] #vz
+            beam_in[:, 4] = np.sqrt(velocity**2 - beam_in[:, 3]**2 - beam_in[:, 5]**2) #vy
+            # calculation
+            N_arrived = 0
+            beam_out = np.empty((0, 9))
+            while N_arrived < N:
+                N_batch = min(N - N_arrived, batch_size)
+                if save_trace: 
+                    beam_batch_out, trace_batch = self._batch_trans_3d(Magnet = magnet, exit_plane = exit_plane, beam_batch_in = beam_in[N_arrived:N_arrived+N_batch], save_trace = save_trace)
+                    trace.extend(trace_batch)
+                else: 
+                    beam_batch_out = self._batch_trans_3d(Magnet = magnet, exit_plane = exit_plane, beam_batch_in = beam_in[N_arrived:N_arrived+N_batch], save_trace = save_trace)
+                N_arrived += N_batch
+                beam_out = np.vstack((beam_out, beam_batch_out))
+            # save_trace
+            if save_trace: 
+                np.save(os.path.join(save_path, 'traces.npy'), np.array(trace))
+            
+        # TODO 
+
+        beam_new = copy.deepcopy(self)
+        beam_new.list = beam_out
+        beam_new.compute_energy_stats()
+        beam_new.N_beampart = len(beam_out)
+        return beam_new
+    def _batch_trans_3d(self, dt = 2e-11, save_Ninterval = 20, q = physical_constants["elementary charge"][0],**kwargs):
+        beam_batch_in = kwargs['beam_batch_in']
+        exit_plane = kwargs['exit_plane']
+        magnet = kwargs['Magnet']
+        save_trace = kwargs['save_trace']
+        t_now = 0
+        n_iter = 0
+        if save_trace: trace = [[np.array(beam_batch_in[i][0], beam_batch_in[i][1], beam_batch_in[i][2], beam_batch_in[i][7])] for i in range(len(beam_batch_in))]
+        while np.any(beam_batch_in[:, 8] == 0): # There are still particles not arrived
+            # Boris push
+            idx = np.where(beam_batch_in[:, 8] == 0)[0] # index of particles not arrived
+            B = magnet.get_B_at(np.stack((beam_batch_in[idx, 0], beam_batch_in[idx, 1], beam_batch_in[idx, 2]), axis=1))
+            B_magnitude = np.linalg.norm(B, axis=1, keepdims=True)
+            mass = beam_batch_in[idx, 6]
+            t = np.tan(-q * B_magnitude * dt / mass / 2)
+            B_magnitude[B_magnitude == 0] = 1
+            b = B / B_magnitude
+            M = self._Boris_matrix(t, b, len(idx))
+            beam_batch_in[idx, 3:6] = np.einsum('ijk,ik->ij', M, beam_batch_in[idx, 3:6]) # velocity update
+            beam_batch_in[idx, 0:3] += beam_batch_in[idx, 3:6] * dt # position update
+            beam_batch_in[idx, 7] += dt
+            t_now += dt
+            n_iter += 1
+
+            # save trace
+            if n_iter % save_Ninterval == 0:
+                if save_trace:
+                    for i in idx:
+                        trace[i].append(np.array(beam_batch_in[i][0], beam_batch_in[i][1], beam_batch_in[i][2], beam_batch_in[i][7]))
+
+            # check if particle arrived
+            for i in idx:
+                if beam_batch_in[i][1] <= exit_plane[2]*(beam_batch_in[i][0] - exit_plane[0]) + exit_plane[1]:
+                    beam_batch_in[i][8] = 1
+                    if save_trace: trace[i].append(np.array(beam_batch_in[i][0], beam_batch_in[i][1], beam_batch_in[i][2], beam_batch_in[i][7]))
+        if save_trace:
+            return beam_batch_in, trace
+        else:
+            return beam_batch_in
+    def _Boris_matrix (self, t, b, len):
+        M = np.zeros((len, 3, 3))
+        C = 2*t/(1+t**2)
+        D = 2*t**2/(1+t**2)
+        M[:, 0, 0] = 1 + D*(b[:, 0]**2 - 1)
+        M[:, 0, 1] = -C*b[:, 2]+D*b[:, 0]*b[:, 1]
+        M[:, 0, 2] = C*b[:, 1]+D*b[:, 0]*b[:, 2]
+        M[:, 1, 0] = C*b[:, 2]+D*b[:, 0]*b[:, 1]
+        M[:, 1, 1] = 1 + D*(b[:, 1]**2 - 1)
+        M[:, 1, 2] = -C*b[:, 0]+D*b[:, 1]*b[:, 2]
+        M[:, 2, 0] = -C*b[:, 1]+D*b[:, 0]*b[:, 2]
+        M[:, 2, 1] = C*b[:, 0]+D*b[:, 1]*b[:, 2]
+        M[:, 2, 2] = 1 + D*(b[:, 2]**2 - 1)
+        return M
 
     def plot_energy_spectrum(self, **params):
         bin_width = params.get('bin_width')
