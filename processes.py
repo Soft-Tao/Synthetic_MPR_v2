@@ -168,6 +168,9 @@ class Beam:
         # beam_out: shape (N,5)
         beam_out = monomials @ coeffs
 
+        # switch from (x,a,y,b,t,delta) back to (x,a,y,b,t,E)
+        beam_out[:, 5] = (beam_out[:, 5] + 1) * magnet.reference_energy
+
         beam_new = copy.deepcopy(self)
         beam_new.list = beam_out
         beam_new.compute_energy_stats()
@@ -216,10 +219,9 @@ class Beam:
                 beam_out = np.vstack((beam_out, beam_batch_out))
             # save_trace
             if save_trace: 
-                np.save(os.path.join(save_path, 'traces.npy'), np.array(trace))
-            
-        # TODO 
-
+                np.save(os.path.join(save_path, 'traces.npy'), np.array(trace))    
+        # transformation from (x,y,z,vx,vy,vz) back to beam reference
+        beam_out_ref = np.zeros()
         beam_new = copy.deepcopy(self)
         beam_new.list = beam_out
         beam_new.compute_energy_stats()
