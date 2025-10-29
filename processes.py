@@ -188,7 +188,7 @@ class Beam:
         save_trace: if True, save the traces len(beam) particles to save_path.
         batch_size: number of particles to do vectorized calculation.
         '''
-        _, y0, theta = exit_plane
+        x0, y0, theta = exit_plane
         theta = np.deg2rad(theta)
         if save_trace == True and save_path is None:
             raise ValueError("save_path of particle's traces is not specified.")
@@ -215,17 +215,24 @@ class Beam:
             while N_arrived < N:
                 N_batch = min(N - N_arrived, batch_size)
                 if save_trace: 
-                    beam_batch_out, trace_batch = self._batch_trans_3d(Magnet = magnet, exit_plane = exit_plane, beam_batch_in = beam_in[N_arrived:N_arrived+N_batch], save_trace = save_trace)
+                    beam_batch_out, trace_batch = self._batch_trans_3d(Magnet = magnet, x0 = x0, y0 = y0, theta = theta, beam_batch_in = beam_in[N_arrived:N_arrived+N_batch], save_trace = save_trace)
                     trace.extend(trace_batch)
                 else: 
-                    beam_batch_out = self._batch_trans_3d(Magnet = magnet, exit_plane = exit_plane, beam_batch_in = beam_in[N_arrived:N_arrived+N_batch], save_trace = save_trace)
+                    beam_batch_out = self._batch_trans_3d(Magnet = magnet, x0 = x0, y0 = y0, theta = theta, beam_batch_in = beam_in[N_arrived:N_arrived+N_batch], save_trace = save_trace)
                 N_arrived += N_batch
                 beam_out = np.vstack((beam_out, beam_batch_out))
             t2 = time.time()
             print(f"3D beam transport finished in {t2-t1:.2f} s.")
             # save_trace
             if save_trace: 
-                np.save(os.path.join(save_path, 'traces.npy'), np.array(trace))    
+                with open(os.path.join(save_path, 'trace.dat'), 'w') as f:
+                    for i, line in enumerate(trace):
+                        for data in line:
+                            f.write(f'{i+1} ')
+                            for value in data:
+                                f.write(f'{value:.6e} ')
+                            f.write('\n')
+                f.close()
         # transformation from (x,y,z,vx,vy,vz) back to beam reference
         beam_out_ref = np.zeros((N, 6)) # [x, a, y, b, t, E]
         beam_out_ref[:, 0] = (beam_out[:, 1] - y0) / np.sin(theta) # [x,y]-> x'
@@ -234,7 +241,7 @@ class Beam:
         beam_out_ref[:, 1] = (beam_out[:, 3] * np.cos(theta) + beam_out[:, 4] * np.sin(theta)) / velocity_out # [vx,vy,v] -> a
         beam_out_ref[:, 3] = beam_out[:, 5] / velocity_out # [vz,v] -> b
         beam_out_ref[:, 4] = beam_out[:, 7] # t
-        beam_out_ref[:, 5] = beam_out[:, 6] * physical_constants["speed of light in vacuum"][0] ** 2 - physical_constants["proton mass"][0] * physical_constants["speed of light in vacuum"][0] ** 2 # m -> E
+        beam_out_ref[:, 5] = (beam_out[:, 6] * physical_constants["speed of light in vacuum"][0] ** 2 - physical_constants["proton mass"][0] * physical_constants["speed of light in vacuum"][0] ** 2) / physical_constants["elementary charge"][0] / 1e6 # m -> E
         beam_new = copy.deepcopy(self)
         beam_new.list = beam_out_ref
         beam_new.compute_energy_stats()
@@ -243,13 +250,15 @@ class Beam:
     
     def _batch_trans_3d(self, dt = 2e-11, save_Ninterval = 20, q = physical_constants["elementary charge"][0],**kwargs):
         beam_batch_in = kwargs['beam_batch_in']
-        exit_plane = kwargs['exit_plane']
+        x0 = kwargs['x0']
+        y0 = kwargs['y0']
+        theta = kwargs['theta']
         magnet = kwargs['Magnet']
         save_trace = kwargs['save_trace']
         print(f"batch size: {len(beam_batch_in)}")
         t_now = 0
         n_iter = 0
-        if save_trace: trace = [[np.array(beam_batch_in[i][0], beam_batch_in[i][1], beam_batch_in[i][2], beam_batch_in[i][7])] for i in range(len(beam_batch_in))]
+        if save_trace: trace = [[np.array([beam_batch_in[i][0], beam_batch_in[i][1], beam_batch_in[i][2], beam_batch_in[i][7]])] for i in range(len(beam_batch_in))]
         while np.any(beam_batch_in[:, 8] == 0): # There are still particles not arrived
             # Boris push
             print(f"t = {t_now*1e9:.2f} ns, arrvived particles: {np.sum(beam_batch_in[:, 8]==1)}/{len(beam_batch_in)}", end='\r')
@@ -271,13 +280,13 @@ class Beam:
             if n_iter % save_Ninterval == 0:
                 if save_trace:
                     for i in idx:
-                        trace[i].append(np.array(beam_batch_in[i][0], beam_batch_in[i][1], beam_batch_in[i][2], beam_batch_in[i][7]))
+                        trace[i].append(np.array([beam_batch_in[i][0], beam_batch_in[i][1], beam_batch_in[i][2], beam_batch_in[i][7]]))
 
             # check if particle arrived
             for i in idx:
-                if beam_batch_in[i][1] <= exit_plane[2]*(beam_batch_in[i][0] - exit_plane[0]) + exit_plane[1]:
+                if beam_batch_in[i][1] <= np.tan(theta)*(beam_batch_in[i][0] - x0) + y0:
                     beam_batch_in[i][8] = 1
-                    if save_trace: trace[i].append(np.array(beam_batch_in[i][0], beam_batch_in[i][1], beam_batch_in[i][2], beam_batch_in[i][7]))
+                    if save_trace: trace[i].append(np.array([beam_batch_in[i][0], beam_batch_in[i][1], beam_batch_in[i][2], beam_batch_in[i][7]]))
         print('\n')
         if save_trace:
             return beam_batch_in, trace
