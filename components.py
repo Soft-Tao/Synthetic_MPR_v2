@@ -1,5 +1,5 @@
 import numpy as np
-from scipy.interpolate import interp1d
+from scipy.interpolate import interp1d, LinearNDInterpolator
 
 def load_numeric_table(fname):
     start = None
@@ -246,27 +246,69 @@ class Aperture:
             return np.logical_and(np.abs(x) <= self.geometry[0] / 2, np.abs(y) <= self.geometry[1] / 2)
 
 class Magnets:
-    def __init__(self, file_path: str, reference_energy: float):
+    def __init__(self, type: str, file_path: str, reference_energy: float = None):
         '''
+        ===If type is 2d===
         Initialize a Magnets object using transfer map from COSY INFINITY.
 
         Parameters:
         file_path: path to the TM.txt file
         reference_energy: reference energy [MeV]
-        '''
-        self.reference_energy = reference_energy
-        self.TM = []
 
-        with open(file_path, 'r') as f:
-            lines = f.readlines()
-            for line in lines:
-                TMi = []
-                for i in line.strip().split()[:5]:
-                    TMi.append(float(i))
-                for l in line.strip().split()[5]:
-                    TMi.append(int(l))
-                self.TM.append(TMi)
-        self.TM = np.array(self.TM)
+        ===If type is 3d===
+        Initialize a Magnets object using three dimensional B-field data (e.g. from COMSOL).
+
+        Parameters:
+        file_path: path to the B-field data
+        '''
+        self.type = type
+        if self.type == '2d':
+            if reference_energy is None:
+                raise Exception("you must provide [reference_energy] if you're trying to initiate a 2d magnets!")
+            self.reference_energy = reference_energy
+            self.TM = []
+
+            with open(file_path, 'r') as f:
+                lines = f.readlines()
+                for line in lines:
+                    TMi = []
+                    for i in line.strip().split()[:5]:
+                        TMi.append(float(i))
+                    for l in line.strip().split()[5]:
+                        TMi.append(int(l))
+                    self.TM.append(TMi)
+            self.TM = np.array(self.TM)
+        if self.type == '3d':
+            with open(file_path, 'r') as f:
+                lines = f.readlines()
+                data = []
+                for line in lines:
+                    if line[0] != "%":
+                        data.append([float(i) for i in line.strip().split(',')])
+            f.close()
+            data = np.array(data)
+            self.xgrid = data[:, 0]
+            self.ygrid = data[:, 1]
+            self.zgrid = data[:, 2]
+            self.Bx = data[:, 3]
+            self.By = data[:, 4]
+            self.Bz = data[:, 5]
+            self._Bx_interp = None
+            self._By_interp = None
+            self._Bz_interp = None
+        
+    def _initialize_interpolators(self):
+        self._Bx_interp = LinearNDInterpolator((self.xgrid, self.ygrid, self.zgrid), self.Bx)
+        self._By_interp = LinearNDInterpolator((self.xgrid, self.ygrid, self.zgrid), self.By)
+        self._Bz_interp = LinearNDInterpolator((self.xgrid, self.ygrid, self.zgrid), self.Bz)
+    
+    def get_B_at(self, X):
+        if self._Bx_interp is None:
+            self._initialize_interpolators()
+        Bx = np.array(self._Bx_interp(X))
+        By = np.array(self._By_interp(X))
+        Bz = np.array(self._Bz_interp(X))
+        return np.stack((Bx, By, Bz), axis=1)
 
 class Focalplane:
     def __init__(self, type: str, position: float=None, geometry: list=None, length=1):
@@ -274,9 +316,15 @@ class Focalplane:
         Initialize a Focalplane object.
 
         Parameters:
+        **In 2d case (COSY TM based)**
         type: 'normal' or 'arbitrary'
         position: focal plane position [m] behind magnets' exit
         geometry: list (x, z) of tuples, z = 0 @ magnets' exit
+
+        **In 3d case (e.g. COMSOL based)**
+        type: 'arbitrary' only
+        geometry: list (x, y) of tuples, origin @ target's geometric center
+        (position parameter is ignored in 3d case)
         '''
         self.type = type
         self.position = position
