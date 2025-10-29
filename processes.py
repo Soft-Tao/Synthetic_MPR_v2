@@ -5,6 +5,7 @@ from components import Target, Aperture, Magnets, Focalplane
 import ENDF_differential_cross_section
 from scipy.constants import Avogadro, physical_constants
 import time
+from tqdm import tqdm
 
 def plot_spectrum(xx, **params):
     figsize = params.get('figsize', None)
@@ -26,6 +27,8 @@ class Beam:
         self.N_neutrons = N_neutrons
         self.std_dev_E = None
         self.ave_E = None
+
+        self.trace = None # not None if '3d'. 
 
     @classmethod
     def generate(cls, target: Target, aperture: Aperture, energy, Npart, cross_section=None,
@@ -177,23 +180,23 @@ class Beam:
         beam_new.N_beampart = len(beam_out)
         return beam_new
     
-    def trans_3d(self, magnet: Magnets, exit_plane: tuple, save_trace = False, save_path = None, batch_size = 1024):
+    def trans_3d(self, magnet: Magnets, exit_plane: tuple, IsSave = False, save_path = None, batch_size = 1024):
         '''
         Calculate beam trace in 3D Mag-field of magnet using Boris method.
         **Origin must set at the geometric center of the target**
         **(x, y, z) coordinate system, reference beam trace is in xy plane @ z=0**
 
         magnet: Magnets object with self.type = 3d
-        exit_plane: (x0, y0, theta) [m, m, deg] tuple to describe the exit plane after which you should use beam.hit() [theta: angle between exit plane and x+ axis]
-        save_trace: if True, save the traces len(beam) particles to save_path.
+        exit_plane: (x0, y0, theta) [m, m, deg] tuple to describe the exit plane. [theta: angle between exit plane and x+ axis]
+        > about exit_plane: you should put it behind any possible position of the focal plane (e.g. the boundary of valid space for MPR).
         batch_size: number of particles to do vectorized calculation.
         '''
         x0, y0, theta = exit_plane
         theta = np.deg2rad(theta)
-        if save_trace == True and save_path is None:
+        if IsSave and save_path is None:
             raise ValueError("save_path of particle's traces is not specified.")
         else:
-            if save_trace: trace = []   
+            trace = []   
             beam = np.asarray(self.list) # coordinate = [x, a, y, b, t, E]
             N = beam.shape[0]
             # transformation from beam reference to (x,y,z,vx,vy,vz)
@@ -213,18 +216,16 @@ class Beam:
             N_arrived = 0
             beam_out = np.empty((0, 9))
             while N_arrived < N:
-                N_batch = min(N - N_arrived, batch_size)
-                if save_trace: 
-                    beam_batch_out, trace_batch = self._batch_trans_3d(Magnet = magnet, x0 = x0, y0 = y0, theta = theta, beam_batch_in = beam_in[N_arrived:N_arrived+N_batch], save_trace = save_trace)
-                    trace.extend(trace_batch)
-                else: 
-                    beam_batch_out = self._batch_trans_3d(Magnet = magnet, x0 = x0, y0 = y0, theta = theta, beam_batch_in = beam_in[N_arrived:N_arrived+N_batch], save_trace = save_trace)
+                N_batch = min(N - N_arrived, batch_size) 
+                beam_batch_out, trace_batch = self._batch_trans_3d(Magnet = magnet, x0 = x0, y0 = y0, theta = theta, beam_batch_in = beam_in[N_arrived:N_arrived+N_batch])
+                trace.extend(trace_batch)
                 N_arrived += N_batch
                 beam_out = np.vstack((beam_out, beam_batch_out))
             t2 = time.time()
             print(f"3D beam transport finished in {t2-t1:.2f} s.")
-            # save_trace
-            if save_trace: 
+            self.trace = trace
+            if IsSave:
+                # save_trace
                 with open(os.path.join(save_path, 'trace.dat'), 'w') as f:
                     for i, line in enumerate(trace):
                         for data in line:
@@ -233,20 +234,6 @@ class Beam:
                                 f.write(f'{value:.6e} ')
                             f.write('\n')
                 f.close()
-        # transformation from (x,y,z,vx,vy,vz) back to beam reference
-        beam_out_ref = np.zeros((N, 6)) # [x, a, y, b, t, E]
-        beam_out_ref[:, 0] = (beam_out[:, 1] - y0) / np.sin(theta) # [x,y]-> x'
-        beam_out_ref[:, 2] = beam_out[:, 2] # z -> y'
-        velocity_out = np.sqrt(beam_out[:, 3]**2 + beam_out[:, 4]**2 + beam_out[:, 5]**2) # [vx,vy,vz] -> v
-        beam_out_ref[:, 1] = (beam_out[:, 3] * np.cos(theta) + beam_out[:, 4] * np.sin(theta)) / velocity_out # [vx,vy,v] -> a
-        beam_out_ref[:, 3] = beam_out[:, 5] / velocity_out # [vz,v] -> b
-        beam_out_ref[:, 4] = beam_out[:, 7] # t
-        beam_out_ref[:, 5] = (beam_out[:, 6] * physical_constants["speed of light in vacuum"][0] ** 2 - physical_constants["proton mass"][0] * physical_constants["speed of light in vacuum"][0] ** 2) / physical_constants["elementary charge"][0] / 1e6 # m -> E
-        beam_new = copy.deepcopy(self)
-        beam_new.list = beam_out_ref
-        beam_new.compute_energy_stats()
-        beam_new.N_beampart = len(beam_out_ref)
-        return beam_new
     
     def _batch_trans_3d(self, dt = 2e-11, save_Ninterval = 20, q = physical_constants["elementary charge"][0],**kwargs):
         beam_batch_in = kwargs['beam_batch_in']
@@ -254,11 +241,10 @@ class Beam:
         y0 = kwargs['y0']
         theta = kwargs['theta']
         magnet = kwargs['Magnet']
-        save_trace = kwargs['save_trace']
         print(f"batch size: {len(beam_batch_in)}")
         t_now = 0
         n_iter = 0
-        if save_trace: trace = [[np.array([beam_batch_in[i][0], beam_batch_in[i][1], beam_batch_in[i][2], beam_batch_in[i][7]])] for i in range(len(beam_batch_in))]
+        trace = [[np.array([beam_batch_in[i][0], beam_batch_in[i][1], beam_batch_in[i][2], beam_batch_in[i][7]])] for i in range(len(beam_batch_in))]
         while np.any(beam_batch_in[:, 8] == 0): # There are still particles not arrived
             # Boris push
             print(f"t = {t_now*1e9:.2f} ns, arrvived particles: {np.sum(beam_batch_in[:, 8]==1)}/{len(beam_batch_in)}", end='\r')
@@ -278,21 +264,17 @@ class Beam:
 
             # save trace
             if n_iter % save_Ninterval == 0:
-                if save_trace:
-                    for i in idx:
-                        trace[i].append(np.array([beam_batch_in[i][0], beam_batch_in[i][1], beam_batch_in[i][2], beam_batch_in[i][7]]))
+                for i in idx:
+                    trace[i].append(np.array([beam_batch_in[i][0], beam_batch_in[i][1], beam_batch_in[i][2], beam_batch_in[i][7]]))
 
             # check if particle arrived
             for i in idx:
                 if beam_batch_in[i][1] <= np.tan(theta)*(beam_batch_in[i][0] - x0) + y0:
                     beam_batch_in[i][8] = 1
-                    if save_trace: trace[i].append(np.array([beam_batch_in[i][0], beam_batch_in[i][1], beam_batch_in[i][2], beam_batch_in[i][7]]))
+                    trace[i].append(np.array([beam_batch_in[i][0], beam_batch_in[i][1], beam_batch_in[i][2], beam_batch_in[i][7]]))
         print('\n')
-        if save_trace:
-            return beam_batch_in, trace
-        else:
-            return beam_batch_in
-        
+        return beam_batch_in, trace
+ 
     def _Boris_matrix (self, t, b, len):
         M = np.zeros((len, 3, 3))
         C = 2*t/(1+t**2)
@@ -375,10 +357,61 @@ class Beam:
                                   (-d0 + d1)[:, None]).T
         y_hits = particle_selected[:, 2] + particle_selected[:, 3] * z_hits
 
-        return ProtonHits(x_hits, y_hits, z_hits, l_hits)
+        return ProtonHits(x_hits=x_hits, y_hits=y_hits, z_hits=z_hits, l_hits=l_hits)
+    
+    def hit_3d(self, focalplane: Focalplane):
+        N = len(self.trace)
+        l_hits = []
+        y_hits = []
+        print("Finding hit points on focal plane...")
+        for i in tqdm(range(N)):
+            N_trace = len(self.trace[i])
+            hit_point = None
+            for j in range(N_trace - 1):
+                for k in range(len(focalplane.geometry)-1):    
+                    hit_point = self._line_segment_intersection(
+                        (self.trace[i][N_trace-1-j][0], self.trace[i][N_trace-1-j][1]),
+                        (self.trace[i][N_trace-2-j][0], self.trace[i][N_trace-2-j][1]),
+                        (focalplane.geometry[k][0], focalplane.geometry[k][1]),
+                        (focalplane.geometry[k+1][0], focalplane.geometry[k+1][1]))
+                    if hit_point is not None:
+                        break
+                if hit_point is not None:
+                    break
+            if hit_point is not None:
+                l_hits.append(focalplane.geometry[k][2] + np.sqrt((focalplane.geometry[k][0] - hit_point[0])**2+(focalplane.geometry[k][1] - hit_point[1])**2))
+                y_hits.append((self.trace[i][N_trace-1-j][2]*np.abs(self.trace[i][N_trace-2-j][0] - hit_point[0]) + self.trace[i][N_trace-2-j][2]*np.abs(self.trace[i][N_trace-1-j][0] - hit_point[0])) / np.abs(self.trace[i][N_trace-2-j][0] - self.trace[i][N_trace-1-j][0]))
+        return ProtonHits(y_hits=np.array(y_hits), l_hits=np.array(l_hits))
+    
+    def _line_segment_intersection(self, A: tuple, B: tuple, C: tuple, D: tuple):
+        '''
+        calculate the intersection point of line segments AB and CD
+        '''
+        x1, y1 = A
+        x2, y2 = B
+        x3, y3 = C
+        x4, y4 = D
+        def cross(o, a, b):
+            return (a[0]-o[0])*(b[1]-o[1]) - (a[1]-o[1])*(b[0]-o[0])
+        d1 = cross(A, B, C)
+        d2 = cross(A, B, D)
+        d3 = cross(C, D, A)
+        d4 = cross(C, D, B)
+        if not ((d1 * d2 <= 0) and (d3 * d4 <= 0)):
+            return None
+        denom = (x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4)
+        if abs(denom) < 1e-10:
+            return None
+        x = ((x1 * y2 - y1 * x2) * (x3 - x4) - (x1 - x2) * (x3 * y4 - y3 * x4)) / denom
+        y = ((x1 * y2 - y1 * x2) * (y3 - y4) - (y1 - y2) * (x3 * y4 - y3 * x4)) / denom
+        return (x, y)
 
 class ProtonHits:
-    def __init__(self, x_hits, y_hits, z_hits, l_hits):
+    def __init__(self, y_hits, l_hits, x_hits = None, z_hits = None):
+        if x_hits is None:
+            x_hits = np.zeros(len(y_hits))
+        if z_hits is None:
+            z_hits = np.zeros(len(y_hits))
         self.x_hits, self.y_hits, self.z_hits = x_hits, y_hits, z_hits
         self.l_hits = l_hits
         self.N_hits = len(self.l_hits)

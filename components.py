@@ -316,9 +316,15 @@ class Focalplane:
         Initialize a Focalplane object.
 
         Parameters:
+        **In 2d case (COSY TM based)**
         type: 'normal' or 'arbitrary'
         position: focal plane position [m] behind magnets' exit
         geometry: list (x, z) of tuples, z = 0 @ magnets' exit
+
+        **In 3d case (e.g. COMSOL based)**
+        type: 'arbitrary' only
+        geometry: list (x, y) of tuples, origin @ target's geometric center
+        (position parameter is ignored in 3d case)
         '''
         self.type = type
         self.position = position
