@@ -209,6 +209,7 @@ class Beam:
             beam_in[:, 4] = np.sqrt(velocity**2 - beam_in[:, 3]**2 - beam_in[:, 5]**2) #vy
             # calculation
             print("Starting 3D beam transport in magnet field...")
+            t1 = time.time()
             N_arrived = 0
             beam_out = np.empty((0, 9))
             while N_arrived < N:
@@ -220,6 +221,8 @@ class Beam:
                     beam_batch_out = self._batch_trans_3d(Magnet = magnet, exit_plane = exit_plane, beam_batch_in = beam_in[N_arrived:N_arrived+N_batch], save_trace = save_trace)
                 N_arrived += N_batch
                 beam_out = np.vstack((beam_out, beam_batch_out))
+            t2 = time.time()
+            print(f"3D beam transport finished in {t2-t1:.2f} s.")
             # save_trace
             if save_trace: 
                 np.save(os.path.join(save_path, 'traces.npy'), np.array(trace))    
@@ -252,11 +255,11 @@ class Beam:
             print(f"t = {t_now*1e9:.2f} ns, arrvived particles: {np.sum(beam_batch_in[:, 8]==1)}/{len(beam_batch_in)}", end='\r')
             idx = np.where(beam_batch_in[:, 8] == 0)[0] # index of particles not arrived
             B = magnet.get_B_at(np.stack((beam_batch_in[idx, 0], beam_batch_in[idx, 1], beam_batch_in[idx, 2]), axis=1))
-            B_magnitude = np.linalg.norm(B, axis=1, keepdims=True)
+            B_magnitude = np.linalg.norm(B, axis=1, keepdims=False)
             mass = beam_batch_in[idx, 6]
             t = np.tan(-q * B_magnitude * dt / mass / 2)
             B_magnitude[B_magnitude == 0] = 1
-            b = B / B_magnitude
+            b = B / B_magnitude[:, np.newaxis]
             M = self._Boris_matrix(t, b, len(idx))
             beam_batch_in[idx, 3:6] = np.einsum('ijk,ik->ij', M, beam_batch_in[idx, 3:6]) # velocity update
             beam_batch_in[idx, 0:3] += beam_batch_in[idx, 3:6] * dt # position update
@@ -275,6 +278,7 @@ class Beam:
                 if beam_batch_in[i][1] <= exit_plane[2]*(beam_batch_in[i][0] - exit_plane[0]) + exit_plane[1]:
                     beam_batch_in[i][8] = 1
                     if save_trace: trace[i].append(np.array(beam_batch_in[i][0], beam_batch_in[i][1], beam_batch_in[i][2], beam_batch_in[i][7]))
+        print('\n')
         if save_trace:
             return beam_batch_in, trace
         else:
