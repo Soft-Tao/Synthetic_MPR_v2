@@ -184,10 +184,12 @@ class Beam:
         **(x, y, z) coordinate system, reference beam trace is in xy plane @ z=0**
 
         magnet: Magnets object with self.type = 3d
-        exit_plane: (x0, y0, k) tuple to describe the exit plane after which you should use beam.hit()
+        exit_plane: (x0, y0, theta) [m, m, deg] tuple to describe the exit plane after which you should use beam.hit() [theta: angle between exit plane and x+ axis]
         save_trace: if True, save the traces len(beam) particles to save_path.
         batch_size: number of particles to do vectorized calculation.
         '''
+        _, y0, theta = exit_plane
+        theta = np.deg2rad(theta)
         if save_trace == True and save_path is None:
             raise ValueError("save_path of particle's traces is not specified.")
         else:
@@ -206,6 +208,7 @@ class Beam:
             beam_in[:, 5] = velocity * beam[:, 3] #vz
             beam_in[:, 4] = np.sqrt(velocity**2 - beam_in[:, 3]**2 - beam_in[:, 5]**2) #vy
             # calculation
+            print("Starting 3D beam transport in magnet field...")
             N_arrived = 0
             beam_out = np.empty((0, 9))
             while N_arrived < N:
@@ -221,22 +224,32 @@ class Beam:
             if save_trace: 
                 np.save(os.path.join(save_path, 'traces.npy'), np.array(trace))    
         # transformation from (x,y,z,vx,vy,vz) back to beam reference
-        beam_out_ref = np.zeros()
+        beam_out_ref = np.zeros((N, 6)) # [x, a, y, b, t, E]
+        beam_out_ref[:, 0] = (beam_out[:, 1] - y0) / np.sin(theta) # [x,y]-> x'
+        beam_out_ref[:, 2] = beam_out[:, 2] # z -> y'
+        velocity_out = np.sqrt(beam_out[:, 3]**2 + beam_out[:, 4]**2 + beam_out[:, 5]**2) # [vx,vy,vz] -> v
+        beam_out_ref[:, 1] = (beam_out[:, 3] * np.cos(theta) + beam_out[:, 4] * np.sin(theta)) / velocity_out # [vx,vy,v] -> a
+        beam_out_ref[:, 3] = beam_out[:, 5] / velocity_out # [vz,v] -> b
+        beam_out_ref[:, 4] = beam_out[:, 7] # t
+        beam_out_ref[:, 5] = beam_out[:, 6] * physical_constants["speed of light in vacuum"][0] ** 2 - physical_constants["proton mass"][0] * physical_constants["speed of light in vacuum"][0] ** 2 # m -> E
         beam_new = copy.deepcopy(self)
-        beam_new.list = beam_out
+        beam_new.list = beam_out_ref
         beam_new.compute_energy_stats()
-        beam_new.N_beampart = len(beam_out)
+        beam_new.N_beampart = len(beam_out_ref)
         return beam_new
+    
     def _batch_trans_3d(self, dt = 2e-11, save_Ninterval = 20, q = physical_constants["elementary charge"][0],**kwargs):
         beam_batch_in = kwargs['beam_batch_in']
         exit_plane = kwargs['exit_plane']
         magnet = kwargs['Magnet']
         save_trace = kwargs['save_trace']
+        print(f"batch size: {len(beam_batch_in)}")
         t_now = 0
         n_iter = 0
         if save_trace: trace = [[np.array(beam_batch_in[i][0], beam_batch_in[i][1], beam_batch_in[i][2], beam_batch_in[i][7])] for i in range(len(beam_batch_in))]
         while np.any(beam_batch_in[:, 8] == 0): # There are still particles not arrived
             # Boris push
+            print(f"t = {t_now*1e9:.2f} ns, arrvived particles: {np.sum(beam_batch_in[:, 8]==1)}/{len(beam_batch_in)}", end='\r')
             idx = np.where(beam_batch_in[:, 8] == 0)[0] # index of particles not arrived
             B = magnet.get_B_at(np.stack((beam_batch_in[idx, 0], beam_batch_in[idx, 1], beam_batch_in[idx, 2]), axis=1))
             B_magnitude = np.linalg.norm(B, axis=1, keepdims=True)
@@ -266,6 +279,7 @@ class Beam:
             return beam_batch_in, trace
         else:
             return beam_batch_in
+        
     def _Boris_matrix (self, t, b, len):
         M = np.zeros((len, 3, 3))
         C = 2*t/(1+t**2)
