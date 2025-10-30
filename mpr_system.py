@@ -70,12 +70,16 @@ class MPR:
         
         self.resolution = resolution
 
-    def optimal_focalplane(self, merit_weight: str, fp_position: list, fp_angle: list, merit_weight_lst = None):
+    def optimal_focalplane(self, fp_position: list, fp_angle: list, merit_weight_lst = None, merit_weight: str = 'uniform'):
         '''
         About the weight:
         Merit is a zero-dimensional number to represent an average energy resolution of the system. Weight is what we need when calculating the average.
         If merit_weight = 'uniform', the weight of each energy is 1.
         Otherwise, you have to specify a merit_weight_lst (len=11) to Energy_lst (np.linspace(10, 20, 11)).
+        =====2d=====
+        fp_postion: list of z (in beam reference)
+        =====2d=====
+        fp_postion: list of (x, y) tuple (in 3d xyz coordinate system)
         '''
         print("Starting to find optimal focal plane position..." \
         "Notice: self.focalplane will be replaced by optimal focal plane.")
@@ -87,15 +91,28 @@ class MPR:
             else:
                 merit_weight_lst = np.array(merit_weight_lst)
 
+        # calculate E_range = np.linspace(9, 21, 13), N_part = 5000, store total beam_out @ magnet's exit.
+        cross_section = ENDF_differential_cross_section.differential_cross_section(
+            'E4R84432_e4.endf.endf2gnd.endf')
+        beam_lst = []
+        for i,ene in enumerate(np.linspace(9, 21, 13)):
+            print(f"[{i}/{len(np.linspace(9, 21, 13))}] energy: {ene:.1f} MeV")
+            beam = Beam.generate(self.target, self.aperture, ene, 5000, cross_section=cross_section)
+            beam_transported = beam.trans(self.magnet)
+            beam_lst.append(beam_transported)
+        
         merit_matrix = np.zeros((len(fp_position), len(fp_angle)))
         for i, position in enumerate(fp_position):
             for j, angle in enumerate(fp_angle):
                 print(f"\rProcess: {100*(i*len(fp_angle)+j)/(len(fp_position)*len(fp_angle)):.2f}%", end='')
                 geometry = [(x, position + x * np.tan(angle*np.pi/180)) for x in np.linspace(-0.5, 0.5, 11)]
                 self.focalplane = Focalplane('arbitrary', position=position, geometry=geometry)
-
-                with contextlib.redirect_stdout(open(os.devnull, 'w')):
-                    self.performance(N_part=5000, plot_show=False)
+                output = []
+                for ene, beam_out in zip(np.linspace(9, 21, 13), beam_lst):
+                    record = beam_out.hit(self.focalplane)
+                    output.append([ene, record.l_mean, record.std_dev_l])
+                output = np.array(output)
+                self.resolution = output[1:-1, 2]/(output[2:, 1] - output[:-2, 1])*(output[2:, 0] - output[:-2, 0])/np.linspace(9, 21, 13)[1:-1]*100
                 merit_matrix[i, j] = np.sum(self.resolution[:][1]*merit_weight_lst)/np.sum(merit_weight_lst)
         
         min_index = np.unravel_index(np.argmin(merit_matrix), merit_matrix.shape)

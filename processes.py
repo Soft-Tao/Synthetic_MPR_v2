@@ -165,14 +165,11 @@ class Beam:
         powers = magnet.TM[:, 5:]  # shape (M,5)
 
         # Initialize output
-        beam_out = np.zeros((N, 5))
+        beam_out = np.zeros((N, 5)) # (x,a,y,b,t)
         # Compute monomials
         monomials = np.prod(coordinate[:, None, :] ** powers[None, :, :], axis=2)  # shape (N,M)
         # beam_out: shape (N,5)
         beam_out = monomials @ coeffs
-
-        # switch from (x,a,y,b,t,delta) back to (x,a,y,b,t,E)
-        beam_out[:, 5] = (beam_out[:, 5] + 1) * magnet.reference_energy
 
         beam_new = copy.deepcopy(self)
         beam_new.list = beam_out
