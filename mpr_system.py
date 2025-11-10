@@ -26,49 +26,65 @@ class MPR:
         if self.focalplane is None:
             raise Exception("focalplane is not specified! Please specify focalplane first or run optimal_focalplane() to find one.")
         output = []
+        efficiency_lst = []
         cross_section = ENDF_differential_cross_section.differential_cross_section(
             'E4R84432_e4.endf.endf2gnd.endf')
-
-        if plot_show: 
-            plt.figure(figsize=(10, 4),dpi = 140)
-            plt.xlabel("l [m]")
-            plt.ylabel("y [m]")
-        for i, ene in enumerate(E_range):
-            print(f"[{i}/{len(E_range)}] energy: {ene:.1f} MeV")
-            beam = Beam.generate(self.target, self.aperture, ene, N_part, cross_section=cross_section)
-            beam_transported = beam.trans(self.magnet)
-            record = beam_transported.hit(self.focalplane)
-            if plot_show: plt.scatter(record.l_hits, record.y_hits, s=0.1, label = f"{ene} MeV")
-            output.append([ene, record.l_mean, record.std_dev_l])
-        if plot_show: plt.legend(markerscale = 20)
-        if plot_show: plt.show()
-        
-        output = np.array(output)
-        if plot_show:
-            plt.figure()
-            plt.plot(output[:, 0], output[:, 1], '-s', color='k')
-            plt.scatter(output[:, 0], output[:, 1], s=2, color='k')
-            plt.title('L-E relation')
-            plt.xlabel('energy [MeV]')
-            plt.ylabel(r'$\bar{l}$ [m]')
-            if plot_save:
-                plt.savefig('L_E_relation.png', dpi=300, bbox_inches='tight')
-            plt.show()
-        
-        resolution = output[1:-1, 2]/(output[2:, 1] - output[:-2, 1])*(output[2:, 0] - output[:-2, 0])/E_range[1:-1]*100
-        if plot_show:
-            plt.figure()
-            plt.plot(E_range[1:-1], resolution, '-s', color='k')
-            plt.scatter(E_range[1:-1], resolution, s=2, color='k')
-            plt.title('Energy resolution') 
-            plt.xlabel('energy [MeV]')
-            plt.ylabel(r'Energy resolution [%]')
-            plt.ylim(ymin=0)
-            if plot_save:
-                plt.savefig('energy_resolution.png', dpi=300, bbox_inches='tight')
-            plt.show()
-        
-        self.resolution = resolution
+        if self.magnet.type == '2d':
+            if plot_show: 
+                plt.figure(figsize=(10, 4),dpi = 140)
+                plt.xlabel("l [m]")
+                plt.ylabel("y [m]")
+            for i, ene in enumerate(E_range):
+                print(f"[{i}/{len(E_range)}] energy: {ene:.1f} MeV")
+                beam = Beam.generate(self.target, self.aperture, ene, N_part, cross_section=cross_section)
+                beam_transported = beam.trans(self.magnet)
+                efficiency_lst.append(beam.N_beampart / beam.N_neutrons)
+                record = beam_transported.hit(self.focalplane)
+                if plot_show: plt.scatter(record.l_hits, record.y_hits, s=0.1, label = f"{ene} MeV")
+                output.append([ene, record.l_mean, record.std_dev_l])
+            if plot_show: plt.legend(markerscale = 20)
+            if plot_show: plt.show()
+            
+            output = np.array(output)
+            efficiency_lst = np.array(efficiency_lst)
+            if plot_show:
+                plt.figure()
+                plt.plot(output[:, 0], output[:, 1], '-s', color='k')
+                plt.scatter(output[:, 0], output[:, 1], s=2, color='k')
+                plt.title('L-E relation')
+                plt.xlabel('energy [MeV]')
+                plt.ylabel(r'$\bar{l}$ [m]')
+                if plot_save:
+                    plt.savefig('L_E_relation.png', dpi=300, bbox_inches='tight')
+                plt.show()
+            
+            resolution = output[1:-1, 2]/(output[2:, 1] - output[:-2, 1])*(output[2:, 0] - output[:-2, 0])/E_range[1:-1]*100
+            if plot_show:
+                fig, ax1 = plt.subplots()
+                
+                # Plot energy resolution on left y-axis
+                color = 'k'
+                ax1.set_xlabel('energy [MeV]')
+                ax1.set_ylabel(r'Energy resolution [%]', color=color)
+                ax1.plot(E_range[1:-1], resolution, '-s', color=color)
+                ax1.scatter(E_range[1:-1], resolution, s=2, color=color)
+                ax1.tick_params(axis='y', labelcolor=color)
+                ax1.set_ylim(ymin=0)
+                
+                # Create second y-axis for efficiency
+                ax2 = ax1.twinx()
+                color = 'r'
+                ax2.set_ylabel('Efficiency', color=color)
+                ax2.plot(E_range[1:-1], efficiency_lst[1:-1], '-s', color=color)
+                ax2.scatter(E_range[1:-1], efficiency_lst[1:-1], s=2, color=color)
+                ax2.tick_params(axis='y', labelcolor=color)
+                
+                plt.title('Energy resolution & efficiency')
+                if plot_save:
+                    plt.savefig('energy_resolution.png', dpi=300, bbox_inches='tight')
+                plt.show()
+            
+            self.resolution = resolution
 
     def optimal_focalplane(self, fp_position: list, fp_angle: list, merit_weight_lst = None, merit_weight: str = 'uniform'):
         '''
@@ -94,33 +110,34 @@ class MPR:
         # calculate E_range = np.linspace(9, 21, 13), N_part = 5000, store total beam_out @ magnet's exit.
         cross_section = ENDF_differential_cross_section.differential_cross_section(
             'E4R84432_e4.endf.endf2gnd.endf')
-        beam_lst = []
-        for i,ene in enumerate(np.linspace(9, 21, 13)):
-            print(f"[{i}/{len(np.linspace(9, 21, 13))}] energy: {ene:.1f} MeV")
-            beam = Beam.generate(self.target, self.aperture, ene, 5000, cross_section=cross_section)
-            beam_transported = beam.trans(self.magnet)
-            beam_lst.append(beam_transported)
-        
-        merit_matrix = np.zeros((len(fp_position), len(fp_angle)))
-        for i, position in enumerate(fp_position):
-            for j, angle in enumerate(fp_angle):
-                print(f"\rProcess: {100*(i*len(fp_angle)+j)/(len(fp_position)*len(fp_angle)):.2f}%", end='')
-                geometry = [(x, position + x * np.tan(angle*np.pi/180)) for x in np.linspace(-0.5, 0.5, 11)]
-                self.focalplane = Focalplane('arbitrary', position=position, geometry=geometry)
-                output = []
-                for ene, beam_out in zip(np.linspace(9, 21, 13), beam_lst):
-                    record = beam_out.hit(self.focalplane)
-                    output.append([ene, record.l_mean, record.std_dev_l])
-                output = np.array(output)
-                self.resolution = output[1:-1, 2]/(output[2:, 1] - output[:-2, 1])*(output[2:, 0] - output[:-2, 0])/np.linspace(9, 21, 13)[1:-1]*100
-                merit_matrix[i, j] = np.sum(self.resolution[:][1]*merit_weight_lst)/np.sum(merit_weight_lst)
-        
-        min_index = np.unravel_index(np.argmin(merit_matrix), merit_matrix.shape)
-        print('\n')
-        print(f"Optimization of the focal plane is completed. Minimum merit value is {merit_matrix[min_index[0]][min_index[1]]:.4f}." \
-        f"The optimal focal plane position is {fp_position[min_index[0]]: .4f}, tilt angle with 'normal' direction is {fp_angle[min_index[1]]: .4f}.")
-        geometry_optimal = [(x, fp_position[min_index[0]] + x * np.tan(fp_angle[min_index[1]]*np.pi/180)) for x in np.linspace(-0.5, 0.5, 101)]
-        self.focalplane = Focalplane('arbitrary', position=fp_position[min_index[0]], geometry=geometry_optimal)
+        if self.magnet.type == '2d':
+            beam_lst = []
+            for i,ene in enumerate(np.linspace(9, 21, 13)):
+                print(f"[{i}/{len(np.linspace(9, 21, 13))}] energy: {ene:.1f} MeV")
+                beam = Beam.generate(self.target, self.aperture, ene, 5000, cross_section=cross_section)
+                beam_transported = beam.trans(self.magnet)
+                beam_lst.append(beam_transported)
+            
+            merit_matrix = np.zeros((len(fp_position), len(fp_angle)))
+            for i, position in enumerate(fp_position):
+                for j, angle in enumerate(fp_angle):
+                    print(f"\rProcess: {100*(i*len(fp_angle)+j)/(len(fp_position)*len(fp_angle)):.2f}%", end='')
+                    geometry = [(x, position + x * np.tan(angle*np.pi/180)) for x in np.linspace(-0.5, 0.5, 11)]
+                    self.focalplane = Focalplane('arbitrary', position=position, geometry=geometry)
+                    output = []
+                    for ene, beam_out in zip(np.linspace(9, 21, 13), beam_lst):
+                        record = beam_out.hit(self.focalplane)
+                        output.append([ene, record.l_mean, record.std_dev_l])
+                    output = np.array(output)
+                    self.resolution = output[1:-1, 2]/(output[2:, 1] - output[:-2, 1])*(output[2:, 0] - output[:-2, 0])/np.linspace(9, 21, 13)[1:-1]*100
+                    merit_matrix[i, j] = np.sum(self.resolution[:][1]*merit_weight_lst)/np.sum(merit_weight_lst)
+            
+            min_index = np.unravel_index(np.argmin(merit_matrix), merit_matrix.shape)
+            print('\n')
+            print(f"Optimization of the focal plane is completed. Minimum merit value is {merit_matrix[min_index[0]][min_index[1]]:.4f}." \
+            f"The optimal focal plane position is {fp_position[min_index[0]]: .4f}, tilt angle with 'normal' direction is {fp_angle[min_index[1]]: .4f}.")
+            geometry_optimal = [(x, fp_position[min_index[0]] + x * np.tan(fp_angle[min_index[1]]*np.pi/180)) for x in np.linspace(-0.5, 0.5, 101)]
+            self.focalplane = Focalplane('arbitrary', position=fp_position[min_index[0]], geometry=geometry_optimal)
     
     def save_focalplane(self, save_path: str):
         if self.focalplane is None:
