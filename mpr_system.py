@@ -162,6 +162,7 @@ class MPR:
             'E4R84432_e4.endf.endf2gnd.endf')
         E_lst = []
         l_lst = []
+        Exception_flag = False
         print("Start sampling...")
         for i in tqdm(range(sample_times)):
             E = np.random.uniform(E_min, E_max)
@@ -170,6 +171,10 @@ class MPR:
             beam_transported = beam.trans(self.magnet)
             record = beam_transported.hit(self.focalplane)
             l_lst += record.l_hits.tolist()
+            if record.N_hits < N_part: # Not all protons are recorded
+                Exception_flag = True
+                l_lst += [self.focalplane.geometry[-1][2] for _ in range(N_part - record.N_hits)] # assign to the last bin
+        if Exception_flag: print("Warning: Not all protons are recorded! They are assigned to the last bin, which is non-physical.")
         print(f"Total counts of recorded protons: {sample_times * N_part}")
         plt.figure()
         H, l_edges, E_edges, _ = plt.hist2d(l_lst, E_lst, bins=(self.focalplane.geometry[:,2], np.linspace(E_min, E_max, 201)), cmap = 'jet')
